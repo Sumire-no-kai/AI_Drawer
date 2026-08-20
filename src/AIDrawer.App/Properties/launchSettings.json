@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "AI Drawer (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "AI Drawer (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

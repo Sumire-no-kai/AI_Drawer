@@ -2,6 +2,29 @@
 
 This is the durable development record for implementation decisions, verified behavior, limitations, and open work. It is not a release changelog. Planned behavior must not be presented as shipped or provider-compatible behavior.
 
+## 2026-08-20 — M1 Windows shell foundation
+
+### Scope and implementation boundary
+
+- Added the first formal application project at `src/AIDrawer.App`, using C#, .NET 10, WinUI 3, Windows App SDK, WebView2, and MSIX development tooling.
+- The shell currently hosts one Gemini workspace only. Gemini remains `Experimental`; this does not change the M0 compatibility result or claim public support.
+- The application code does not inspect provider DOM, prompts, responses, credentials, cookies, tokens, or payment information.
+
+### Included behavior
+
+1. **Application lifecycle.** A custom startup entry point coordinates a single packaged application instance. A second launch redirects activation to the primary instance.
+2. **Minimal native shell.** The window uses a compact workspace bar, an in-page Gemini host, reload/restart controls, recoverable status messaging, and a true-exit action. Closing the window hides it while the process remains available.
+3. **Local WebView profile.** Gemini uses an application-specific profile under local application data. It is isolated from normal Edge and Chrome profiles. The development test profile was cleared after implementation; no test login state remains.
+4. **Subscription boundary.** The initial Gemini policy cancels only reviewed Google payment hosts and Gemini purchase-path fragments, then shows a native explanation. It is not a guarantee that every future provider route is covered.
+5. **Shortcut and tray foundation.** The shell registers the proposed `Win + Shift + A` shortcut through Win32 and creates one notification-area icon through H.NotifyIcon.WinUI. Direct `WM_HOTKEY` handling was exercised during development; the physical key chord still needs a user-operated verification before it can be considered reliable.
+6. **Failure recovery.** WebView initialization, navigation, and process-failure states give the user reload or same-profile restart actions without reading page content.
+
+### Verification and limitations
+
+- `dotnet build src/AIDrawer.App/AIDrawer.App.csproj --configuration Debug --arch x64 --no-restore` completed with zero warnings and zero errors.
+- Debug packaged launch, one-instance activation, and close-to-hide restoration were exercised locally. Before the local profile was cleared, repeated shell launches could load an existing Gemini session; no programmatic sign-in, prompt submission, upload, purchase, or account-setting action was performed. All M0 and Debug WebView2 profiles were then removed, and future automated checks use an empty profile only.
+- The current scope does not yet include provider selection, multi-workspace lifecycle limits, settings/profile reset UI, general external-navigation policy, full tray context menu, packaged release validation, or physical shortcut verification.
+
 ## 2026-08-20 — Initial multi-provider manual sweep
 
 ### Scope and evidence
