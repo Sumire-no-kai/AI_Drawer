@@ -10,16 +10,22 @@ Passing a page-load test does not establish support. A provider remains `Experim
 
 | ID | Provider | Initial official web entry | Current status |
 | --- | --- | --- | --- |
-| `chatgpt` | ChatGPT | `https://chatgpt.com/` | Not tested |
-| `claude` | Claude | `https://claude.ai/` | Not tested |
+| `chatgpt` | ChatGPT | `https://chatgpt.com/` | Experimental |
+| `claude` | Claude | `https://claude.ai/` | Experimental |
 | `gemini` | Gemini | `https://gemini.google.com/` | Experimental |
-| `grok` | Grok | `https://grok.com/` | Not tested |
-| `deepseek` | DeepSeek | `https://chat.deepseek.com/` | Not tested |
-| `doubao` | Doubao / 豆包 | `https://www.doubao.com/` | Not tested |
-| `qwen` | Qwen / 通义千问 | `https://chat.qwen.ai/` | Not tested |
-| `glm` | GLM / 智谱清言 | `https://chatglm.cn/` | Not tested |
+| `grok` | Grok | `https://grok.com/` | Limited; root cause of blank reply rendering remains open |
+| `deepseek` | DeepSeek | `https://chat.deepseek.com/` | Experimental |
+| `doubao` | Doubao / 豆包 (China) | `https://www.doubao.com/` | Experimental |
+| `qwen` | Qwen Studio (International) | `https://chat.qwen.ai/` | Experimental |
+| `qwen-cn` | Tongyi Qianwen / 通义千问 (China) | `https://tongyi.aliyun.com/qianwen/` | Not tested |
+| `glm` | GLM / 智谱清言 (China) | `https://chatglm.cn/` | Experimental |
+| `zai` | Z.ai (International) | `https://chat.z.ai/` | Not tested |
 
 The entry URLs are test starting points, not an allowlist or a provider-support claim. Login, payment, popup, and redirect domains must be observed manually and added only after review.
+
+Regional products use separate candidate IDs and persistent profile directories. A result for one regional site does not transfer to another site's authentication, session, purchase, or compatibility status. Existing IDs for the already-tested Doubao, Qwen Studio, and GLM entries remain unchanged so this update does not orphan their local test profiles.
+
+An international Doubao-family entry is deliberately not hard-coded yet. The previously visible Cici entry now redirects toward Dola, and the current official relationship, regional availability, and stable chat entry require a separate review before it becomes a candidate.
 
 ## Privacy and safety boundary
 

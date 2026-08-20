@@ -35,9 +35,11 @@ Development is in **Milestone 0: Provider Compatibility Lab**. The repository cu
 | Provider | Current status | Evidence boundary |
 | --- | --- | --- |
 | Gemini | `Experimental` | Embedded sign-in, session persistence, ordinary text chat, account history, clipboard, picker-based upload, explicit microphone permission, reload, and one known subscription-popup boundary worked in one Windows test environment. Long-conversation, download, generic external-link, renderer-failure, corrected resource, and repeat-environment tests remain open. |
-| Other providers | `Not tested` | Candidate providers must pass the PRD compatibility gates before they can be advertised as supported. |
+| Grok | `Limited` | X sign-in and basic conversation submission worked, and same-profile WebView recreation retained login in one manual run. Reply text rendered blank inside the tested environment even though user-initiated copy returned the reply. A normal-browser comparison is still required before assigning the cause. The provider purchase page also remained reachable. |
+| ChatGPT, Claude, DeepSeek, Doubao, Qwen Studio, GLM | `Experimental` | Initial page, sign-in, and basic-use checks were reported usable in one manual sweep. Required feature, recovery, resource, repeat-environment, and purchase-boundary coverage remains incomplete; ChatGPT's purchase page remained reachable. |
+| Tongyi Qianwen (China), Z.ai (International) | `Not tested` | Regional websites are separate candidates with isolated profiles. Compatibility evidence from their related provider entry does not transfer. |
 
-The Gemini result shows technical feasibility only. It is not a statement of official Google approval or universal compatibility across accounts, regions, policies, or future website versions.
+These results show environment-scoped technical feasibility only. They are not statements of provider approval or universal compatibility across accounts, regions, policies, or future website versions.
 
 See the [manual M0 test plan](docs/testing/Provider_WebView2_Compatibility_Test_Plan.md) and [compatibility matrix](docs/testing/Provider_Compatibility_Matrix.md) for the current evidence boundary.
 
@@ -59,6 +61,7 @@ WebView2 still maintains ordinary browser-origin data such as cookies and local 
 - multiple provider and same-provider workspaces;
 - lazy WebView creation with a bounded live-view budget;
 - persistent, provider-isolated WebView profiles;
+- settings to clear temporary cache or explicitly reset one provider workspace, one provider, or all local website data;
 - safe system-browser handoff for unrelated navigation;
 - clear permission and compatibility states;
 - wait, reload, and same-profile restart recovery;
