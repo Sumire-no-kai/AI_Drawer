@@ -80,10 +80,7 @@ macOS may be explored later as a separate native shell using SwiftUI/AppKit and 
 
 ## Project documents
 
-- [Product requirements](AI_Dock_PRD_v0.2.md)
 - [Product principles](PRODUCT.md)
-- [Design system](DESIGN.md)
-- [Repository working agreement](AGENTS.md)
 - [Apache License 2.0](LICENSE)
 
 Build and contributor instructions will be added as the compatibility harness is prepared for review on the main branch. Provider compatibility contributions must include reproducible environment details and test evidence; adding a URL alone does not establish support.

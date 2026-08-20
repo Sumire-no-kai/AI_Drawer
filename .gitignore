@@ -57,6 +57,11 @@ secrets.json
 # Vercel local state for a future static website
 .vercel/
 
+# Local-only project working documents
+/AGENTS.md
+/AI_Dock_PRD_v0.2.md
+/DESIGN.md
+
 # Operating-system files
 .DS_Store
 Thumbs.db
