@@ -1,7 +1,7 @@
 # AI Drawer
 
 ![Repository version](https://img.shields.io/badge/version-0.0.1--dev-181717?style=flat-square&labelColor=181717)
-![Development status](https://img.shields.io/badge/status-M1%20Windows%20Shell-181717?style=flat-square&labelColor=181717)
+![Development status](https://img.shields.io/badge/status-M2%20Multi--provider%20Shell-181717?style=flat-square&labelColor=181717)
 ![Initial platform](https://img.shields.io/badge/platform-Windows%2011-181717?style=flat-square&labelColor=181717)
 
 > A lightweight, privacy-respecting Windows workspace for the AI web apps you already use.
@@ -30,7 +30,7 @@ The provisionally approved interface is deliberately small: one compact workspac
 
 ## Current status
 
-Development is in **Milestone 1: Windows Shell**. The repository contains the M0 manual compatibility harness and an in-progress native WinUI 3 shell that currently loads Gemini as an `Experimental` provider. There is no public end-user build yet, and M1 is not an MVP acceptance claim.
+Development is in **Milestone 2: Multi-provider Windows Shell**. The repository contains the M0 manual compatibility harness and an in-progress native WinUI 3 shell with a selector for eight `Experimental` or `Limited` provider entries. There is no public end-user build yet, and M2 is not an MVP acceptance claim.
 
 | Provider | Current status | Evidence boundary |
 | --- | --- | --- |

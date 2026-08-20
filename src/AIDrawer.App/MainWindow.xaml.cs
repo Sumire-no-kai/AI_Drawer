@@ -26,6 +26,7 @@ public sealed partial class MainWindow : Window
 
     internal void ShowAndActivate()
     {
+        WorkspacePage.SetWindowVisibility(true);
         AppWindow.Show();
         Activate();
     }
@@ -47,6 +48,7 @@ public sealed partial class MainWindow : Window
         }
 
         args.Cancel = true;
+        WorkspacePage.SetWindowVisibility(false);
         AppWindow.Hide();
     }
 
