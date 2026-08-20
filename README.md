@@ -1,8 +1,8 @@
 # AI Drawer
 
 ![Repository version](https://img.shields.io/badge/version-0.0.1--dev-181717?style=flat-square&labelColor=181717)
-![Development status](https://img.shields.io/badge/status-M2%20Multi--provider%20Shell-181717?style=flat-square&labelColor=181717)
-![Initial platform](https://img.shields.io/badge/platform-Windows%2011-181717?style=flat-square&labelColor=181717)
+![Development status](https://img.shields.io/badge/status-M2.2%20Lifecycle%20Hardening%20Next-181717?style=flat-square&labelColor=181717)
+![Initial platform](https://img.shields.io/badge/platform-Windows%2010%201809%2B%20%7C%2011-181717?style=flat-square&labelColor=181717)
 
 > A lightweight, privacy-respecting Windows workspace for the AI web apps you already use.
 >
@@ -30,7 +30,9 @@ The provisionally approved interface is deliberately small: one compact workspac
 
 ## Current status
 
-Development is in **Milestone 2.1: Workspace and visual alignment**, on top of the M2 multi-provider shell. The current branch opens on a centered blank workspace home, supports multiple same-provider tabs, keeps the native workspace bar visible while provider pages load, and uses the selected Sixfold Pulse identity across the app and transparent Windows icon assets. The notification-area icon supports left-click restore plus right-click Open and Exit actions. There is no public end-user build yet, and M2.1 is not an MVP acceptance claim.
+The implemented shell is at **Milestone 2.1: Workspace and visual alignment**, on top of the M2 multi-provider foundation. The next implementation stage is **M2.2: Workspace persistence and lifecycle hardening**. The current branch opens on a centered blank workspace home, supports multiple same-provider tabs, keeps the native workspace bar visible while provider pages load, and uses the selected Sixfold Pulse identity across the app and transparent Windows icon assets. The notification-area icon supports left-click restore plus right-click Open and Exit actions.
+
+The current two-live-WebView eviction behavior is not the final lifecycle design: a third live workspace can currently cause the least-recently-used view to be recreated from its provider home. M2.2 must preserve workspace identity, add a protected grace period, make released workspaces explicitly reloadable, and restore them through a reviewed local locator where safe. There is no public end-user build yet, and neither M2.1 nor the provisional M2.2 design is an MVP acceptance or performance claim.
 
 | Provider | Current status | Evidence boundary |
 | --- | --- | --- |
@@ -61,7 +63,10 @@ WebView2 still maintains ordinary browser-origin data such as cookies and local 
 - multiple provider and same-provider workspaces;
 - lazy WebView creation with a bounded live-view budget;
 - persistent, provider-isolated WebView profiles;
-- settings to clear temporary cache or explicitly reset one provider workspace, one provider, or all local website data;
+- first-run welcome, feature, privacy, compatibility, tray, and data-reset explanations;
+- settings for shortcut, startup, tray, window, memory mode, workspace restoration, and provider-profile data controls;
+- provider cache clearing, provider website-data reset, and reset-all controls with accurate sign-out scope;
+- a disclosed Buy Me a Coffee link under About & Support, plus an infrequent local-only reminder that can be permanently dismissed;
 - safe system-browser handoff for unrelated navigation;
 - clear permission and compatibility states;
 - wait, reload, and same-profile restart recovery;
@@ -70,6 +75,28 @@ WebView2 still maintains ordinary browser-origin data such as cookies and local 
 - MSIX packaging, with Microsoft Store as the intended stable distribution channel.
 
 macOS may be explored later as a separate native shell using SwiftUI/AppKit and WKWebView. It is not part of the Windows MVP.
+
+## Provisional workspace lifecycle
+
+The MVP treats one provider entry as one signed-in WebView2 profile. Multiple conversation workspaces for the same provider share that profile's sign-in, cookies, cache, permissions, and provider-managed history. Simultaneous isolated accounts for the same provider are deferred until after the MVP.
+
+The provisional lifecycle combines four states rather than keeping every provider page live:
+
+```text
+Active normal
+    → recently used low-memory
+    → older suspended
+    → disposed but natively identifiable and reloadable
+```
+
+- The active workspace is never automatically released.
+- Recently active and user-protected workspaces receive a grace period.
+- Low-memory views may continue provider scripts and network activity; suspended views trade background activity for lower CPU use.
+- Disposed workspaces retain only minimal native metadata and, where a provider-specific policy makes it safe, one restricted local restore locator. AI Drawer does not cache prompts, responses, DOM, or conversation content.
+- `Low Memory`, `Balanced`, and `Fast Switching` modes will use measured live, suspended, and restoration budgets rather than one unqualified global number.
+- A released workspace must remain at least as identifiable and recoverable as an inactive Chrome tab; resource savings do not justify silently replacing it with an unrelated new context.
+
+Initial planning assumes an 8 GB Windows device should handle one active view, one warm or suspended view, and at least ten recoverable workspaces. A 16 GB device is the recommended target for two or three live views plus additional suspended and disposed workspaces. These are design targets only: the repository does not yet contain the cross-provider, Windows 10/11, long-conversation, or memory-pressure evidence needed to publish a capacity claim.
 
 ## Technology
 
@@ -97,7 +124,7 @@ Third-party notices are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.m
 
 ## Build the current development shell
 
-This is contributor-only guidance, not an end-user installation path. On Windows 11 with the .NET 10 SDK and the WebView2 Evergreen Runtime available:
+This is contributor-only guidance, not an end-user installation path. On Windows 10 version 1809 or later, or Windows 11, with the .NET 10 SDK and the WebView2 Evergreen Runtime available:
 
 ```powershell
 dotnet restore src/AIDrawer.App/AIDrawer.App.csproj
@@ -115,10 +142,10 @@ Provider compatibility contributions must include reproducible environment detai
 
 ## Roadmap
 
-1. Complete the initial provider compatibility matrix and resource baselines.
-2. Build the minimal native Windows shell and lifecycle behavior.
-3. Add bounded multi-provider workspaces and recovery.
-4. Harden navigation, privacy, purchase, and security boundaries.
+1. Implement M2.2 workspace identity, grace-period lifecycle, safe restoration, and provider-profile reset scope.
+2. Add the first-run onboarding and MVP settings foundation, including memory modes and About & Support.
+3. Complete the outstanding M0/M2 compatibility, resource, recovery, and Windows 10/11 evidence before making capacity or provider-support claims.
+4. Enter M3 to harden origin validation, external navigation, purchase boundaries, diagnostics, disclosures, and security review.
 5. Package a public beta and publish provider limitations.
 
 ## Independence
