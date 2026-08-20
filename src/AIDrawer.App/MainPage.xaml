@@ -18,62 +18,99 @@
         <KeyboardAccelerator Key="Number7" Modifiers="Control" Invoked="ProviderShortcut_Invoked" />
         <KeyboardAccelerator Key="Number8" Modifiers="Control" Invoked="ProviderShortcut_Invoked" />
     </Page.KeyboardAccelerators>
+    <Page.Resources>
+            <ResourceDictionary>
+                <ResourceDictionary.ThemeDictionaries>
+                    <ResourceDictionary x:Key="Light">
+                        <SolidColorBrush x:Key="WorkspaceTabActiveBrush" Color="#12000000" />
+                    </ResourceDictionary>
+                    <ResourceDictionary x:Key="Dark">
+                        <SolidColorBrush x:Key="WorkspaceTabActiveBrush" Color="#24FFFFFF" />
+                    </ResourceDictionary>
+                </ResourceDictionary.ThemeDictionaries>
+
+                <Style x:Key="WorkspaceTabButtonStyle" TargetType="Button">
+                    <Setter Property="Background" Value="Transparent" />
+                    <Setter Property="BorderBrush" Value="Transparent" />
+                    <Setter Property="BorderThickness" Value="0" />
+                    <Setter Property="CornerRadius" Value="6" />
+                    <Setter Property="MinHeight" Value="36" />
+                    <Setter Property="Padding" Value="8,6" />
+                </Style>
+
+                <Style x:Key="WorkspaceActionButtonStyle" TargetType="Button" BasedOn="{StaticResource WorkspaceTabButtonStyle}">
+                    <Setter Property="MinWidth" Value="36" />
+                    <Setter Property="Padding" Value="8" />
+                </Style>
+            </ResourceDictionary>
+    </Page.Resources>
+
     <Grid>
+
         <Grid.RowDefinitions>
-            <RowDefinition Height="56" />
+            <RowDefinition Height="60" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Padding="16,8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+        <Grid Grid.Row="0" Padding="12,8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="260" />
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <Image Width="24" Height="24" Source="/Assets/Square44x44Logo.targetsize-24_altform-unplated.png" />
-            <ComboBox
-                x:Name="ProviderSelector"
+            <Image
+                Width="26"
+                Height="26"
+                Margin="2,0,10,0"
+                AutomationProperties.Name="AI Drawer"
+                Source="/Assets/Square44x44Logo.targetsize-48_altform-lightunplated.png" />
+
+            <ScrollViewer
                 Grid.Column="1"
-                Margin="12,0,0,0"
-                DisplayMemberPath="DisplayName"
-                PlaceholderText="Choose a provider"
-                SelectionChanged="ProviderSelector_SelectionChanged" />
+                VerticalScrollBarVisibility="Disabled"
+                HorizontalScrollBarVisibility="Hidden"
+                HorizontalScrollMode="Enabled"
+                VerticalContentAlignment="Center">
+                <StackPanel x:Name="WorkspaceTabs" Orientation="Horizontal" Spacing="2" />
+            </ScrollViewer>
 
             <TextBlock
                 x:Name="CompatibilityStatusText"
                 Grid.Column="2"
-                Margin="12,0,0,0"
+                Margin="8,0"
                 VerticalAlignment="Center"
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                Text="Compatibility status" />
+                Text="Compatibility" />
 
-            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4">
+            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="2">
                 <Button
-                    x:Name="ReloadButton"
-                    MinWidth="36"
-                    Padding="8"
-                    ToolTipService.ToolTip="Reload Gemini"
-                    Click="ReloadButton_Click">
-                    <FontIcon Glyph="&#xE72C;" />
-                </Button>
-                <Button
-                    x:Name="RestartButton"
-                    MinWidth="36"
-                    Padding="8"
-                    ToolTipService.ToolTip="Restart Gemini workspace"
-                    Click="RestartButton_Click">
-                    <FontIcon Glyph="&#xE777;" />
-                </Button>
-                <Button
-                    MinWidth="36"
-                    Padding="8"
-                    ToolTipService.ToolTip="More actions">
+                    Style="{StaticResource WorkspaceActionButtonStyle}"
+                    ToolTipService.ToolTip="Open a provider workspace">
                     <FontIcon Glyph="&#xE710;" />
                     <Button.Flyout>
+                        <MenuFlyout x:Name="OpenWorkspaceFlyout" />
+                    </Button.Flyout>
+                </Button>
+                <Button
+                    Style="{StaticResource WorkspaceActionButtonStyle}"
+                    ToolTipService.ToolTip="Workspace actions">
+                    <FontIcon Glyph="&#xE712;" />
+                    <Button.Flyout>
                         <MenuFlyout>
+                            <MenuFlyoutItem x:Name="ReloadMenuItem" Text="Reload workspace" Click="ReloadButton_Click">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE72C;" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutItem x:Name="RestartMenuItem" Text="Restart workspace" Click="RestartButton_Click">
+                                <MenuFlyoutItem.Icon>
+                                    <FontIcon Glyph="&#xE777;" />
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+                            <MenuFlyoutSeparator />
                             <MenuFlyoutItem Text="Reset this workspace's website data" Click="ResetWebsiteDataMenuItem_Click" />
                             <MenuFlyoutSeparator />
                             <MenuFlyoutItem Text="Exit AI Drawer" Click="ExitButton_Click" />
@@ -89,7 +126,7 @@
             IsOpen="True"
             IsClosable="False"
             Severity="Informational"
-            Title="Loading Gemini"
+            Title="Loading workspace"
             Message="Preparing your private AI Drawer workspace." />
 
         <Grid Grid.Row="2">

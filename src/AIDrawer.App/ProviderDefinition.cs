@@ -12,6 +12,14 @@ internal sealed record ProviderDefinition(
 {
     internal string ProfileName => $"provider-{Id}";
 
+    internal string WorkspaceLabel => Id switch
+    {
+        "doubao" => "Doubao",
+        "qwen" => "Qwen",
+        "glm" => "GLM",
+        _ => DisplayName
+    };
+
     internal bool IsAllowedEmbeddedUri(string? rawUri)
     {
         if (!Uri.TryCreate(rawUri, UriKind.Absolute, out var uri)

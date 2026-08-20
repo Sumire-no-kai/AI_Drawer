@@ -1,6 +1,8 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Windows.System;
 
 namespace AIDrawer;
@@ -9,7 +11,7 @@ public sealed partial class MainPage : Page
 {
     private WorkspaceCoordinator? _workspaceCoordinator;
     private bool _hasLoaded;
-    private bool _isUpdatingSelection;
+    private readonly Dictionary<string, Button> _workspaceTabButtons = new(StringComparer.Ordinal);
 
     public MainPage()
     {
@@ -49,7 +51,7 @@ public sealed partial class MainPage : Page
         _hasLoaded = true;
         _workspaceCoordinator = new WorkspaceCoordinator(WebViewHost, RequestPermissionAsync);
         _workspaceCoordinator.StateChanged += Workspace_StateChanged;
-        ProviderSelector.ItemsSource = _workspaceCoordinator.Providers;
+        PopulateWorkspaceControls();
         await SelectProviderAsync("gemini");
     }
 
@@ -101,11 +103,19 @@ public sealed partial class MainPage : Page
         }
     }
 
-    private async void ProviderSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private async void WorkspaceTab_Click(object sender, RoutedEventArgs e)
     {
-        if (!_isUpdatingSelection && ProviderSelector.SelectedItem is ProviderDefinition provider)
+        if (sender is Button { Tag: string providerId })
         {
-            await SelectProviderAsync(provider.Id);
+            await SelectProviderAsync(providerId);
+        }
+    }
+
+    private async void OpenWorkspaceMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is MenuFlyoutItem { Tag: string providerId })
+        {
+            await SelectProviderAsync(providerId);
         }
     }
 
@@ -165,13 +175,58 @@ public sealed partial class MainPage : Page
         }
 
         var provider = _workspaceCoordinator.Providers.Single(candidate => candidate.Id == providerId);
-        _isUpdatingSelection = true;
-        ProviderSelector.SelectedItem = provider;
-        _isUpdatingSelection = false;
-        var providerIndex = _workspaceCoordinator.Providers.ToList().IndexOf(provider) + 1;
-        CompatibilityStatusText.Text = $"{provider.CompatibilityStatus} · Ctrl + {providerIndex}";
+        UpdateWorkspaceTabSelection(provider.Id);
+        CompatibilityStatusText.Text = provider.CompatibilityStatus;
+        ReloadMenuItem.Text = $"Reload {provider.DisplayName}";
+        RestartMenuItem.Text = $"Restart {provider.DisplayName} workspace";
         RecoveryPanel.Visibility = Visibility.Collapsed;
         await _workspaceCoordinator.SelectAsync(providerId);
+    }
+
+    private void PopulateWorkspaceControls()
+    {
+        if (_workspaceCoordinator is null)
+        {
+            return;
+        }
+
+        WorkspaceTabs.Children.Clear();
+        OpenWorkspaceFlyout.Items.Clear();
+        _workspaceTabButtons.Clear();
+
+        foreach (var (provider, index) in _workspaceCoordinator.Providers.Select((provider, index) => (provider, index)))
+        {
+            var tab = new Button
+            {
+                Tag = provider.Id,
+                Content = provider.WorkspaceLabel,
+                Style = (Style)Resources["WorkspaceTabButtonStyle"]
+            };
+            ToolTipService.SetToolTip(tab, $"{provider.DisplayName} · {provider.CompatibilityStatus} · Ctrl + {index + 1}");
+            AutomationProperties.SetName(tab, $"Open {provider.DisplayName} workspace");
+            tab.Click += WorkspaceTab_Click;
+            WorkspaceTabs.Children.Add(tab);
+            _workspaceTabButtons.Add(provider.Id, tab);
+
+            var menuItem = new MenuFlyoutItem
+            {
+                Text = provider.DisplayName,
+                Tag = provider.Id
+            };
+            menuItem.Click += OpenWorkspaceMenuItem_Click;
+            OpenWorkspaceFlyout.Items.Add(menuItem);
+        }
+    }
+
+    private void UpdateWorkspaceTabSelection(string providerId)
+    {
+        var activeBrush = (Brush)Resources["WorkspaceTabActiveBrush"];
+        foreach (var (id, tab) in _workspaceTabButtons)
+        {
+            var isActive = string.Equals(id, providerId, StringComparison.Ordinal);
+            tab.Background = isActive ? activeBrush : null;
+            tab.FontWeight = isActive ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
+        }
     }
 
     private async Task<PermissionDecision> RequestPermissionAsync(PermissionRequest request)
