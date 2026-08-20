@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -8,11 +9,10 @@ namespace AIDock.CompatibilityLab;
 
 public sealed partial class MainPage : Page
 {
-    private static readonly Uri GeminiUri = new("https://gemini.google.com/");
-
     private readonly DispatcherTimer _metricsTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private WebView2? _webView;
     private CoreWebView2Environment? _environment;
+    private ProviderDefinition? _currentProvider;
     private string? _profilePath;
     private DateTimeOffset _previousSampleTime;
     private TimeSpan _previousProcessorTime;
@@ -21,48 +21,82 @@ public sealed partial class MainPage : Page
     {
         InitializeComponent();
 
+        ProviderBox.ItemsSource = ProviderCatalog.InitialCandidates;
+        ProviderBox.SelectedItem = ProviderCatalog.InitialCandidates.Single(provider => provider.Id == "gemini");
+
         ProfileRootBox.Text = Directory.Exists(@"D:\")
-            ? @"D:\AI Dock TestData\Gemini"
+            ? @"D:\AI Dock TestData"
             : Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                 "AI Dock",
-                "CompatibilityLab",
-                "Gemini");
+                "CompatibilityLab");
 
+        UpdateSelectedProviderUi();
         _metricsTimer.Tick += MetricsTimer_Tick;
         Unloaded += MainPage_Unloaded;
     }
 
+    private ProviderDefinition? SelectedProvider => ProviderBox.SelectedItem as ProviderDefinition;
+
     private async void StartButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_webView is not null)
+        {
+            EndTest();
+            return;
+        }
+
+        var provider = SelectedProvider;
+        if (provider is null)
+        {
+            return;
+        }
+
         StartButton.IsEnabled = false;
 
         try
         {
+            if (string.IsNullOrWhiteSpace(ProfileRootBox.Text))
+            {
+                throw new InvalidOperationException("Profile root is required.");
+            }
+
             var root = Path.GetFullPath(ProfileRootBox.Text.Trim());
             var mode = (ProfileModeBox.SelectedItem as ComboBoxItem)?.Tag?.ToString();
-            _profilePath = mode == "fresh"
-                ? Path.Combine(root, $"fresh-{DateTimeOffset.Now:yyyyMMdd-HHmmss}")
-                : Path.Combine(root, "persistent");
+            _currentProvider = provider;
+            _profilePath = BuildProfilePath(root, provider, mode);
 
             Directory.CreateDirectory(_profilePath);
             ProfilePathText.Text = $"Profile: {_profilePath}";
-            ProfileRootBox.IsEnabled = false;
-            ProfileModeBox.IsEnabled = false;
+            SetConfigurationEnabled(false);
 
-            await InitializeWebViewAsync(_profilePath);
+            await InitializeWebViewAsync(provider, _profilePath);
+            StartButton.Content = "End test";
+            StartButton.IsEnabled = true;
         }
         catch (Exception exception)
         {
+            CloseWebView();
+            _environment = null;
+            _currentProvider = null;
+            _profilePath = null;
+            ProfilePathText.Text = "Profile: not started";
+            SetConfigurationEnabled(true);
+            UpdateSelectedProviderUi();
             Log($"start-failed {exception.GetType().Name}");
             StartButton.IsEnabled = true;
         }
     }
 
-    private async Task InitializeWebViewAsync(string profilePath)
+    private static string BuildProfilePath(string root, ProviderDefinition provider, string? mode) =>
+        mode == "fresh"
+            ? Path.Combine(root, provider.Id, $"fresh-{DateTimeOffset.Now:yyyyMMdd-HHmmssfff}")
+            : Path.Combine(root, provider.Id, "persistent");
+
+    private async Task InitializeWebViewAsync(ProviderDefinition provider, string profilePath)
     {
         CloseWebView();
-        Log("webview-initializing");
+        Log($"webview-initializing provider={provider.Id}");
 
         _environment ??= await CoreWebView2Environment.CreateWithOptionsAsync(
             null,
@@ -74,7 +108,7 @@ public sealed partial class MainPage : Page
         WebViewHost.Children.Add(_webView);
 
         await _webView.EnsureCoreWebView2Async(_environment);
-        ConfigureWebView(_webView.CoreWebView2);
+        ConfigureWebView(_webView.CoreWebView2, provider);
 
         ReloadButton.IsEnabled = true;
         RestartButton.IsEnabled = true;
@@ -82,11 +116,11 @@ public sealed partial class MainPage : Page
         _previousProcessorTime = GetTotalProcessorTime();
         _metricsTimer.Start();
 
-        Log($"webview-ready runtime={_environment.BrowserVersionString}");
-        _webView.CoreWebView2.Navigate(GeminiUri.AbsoluteUri);
+        Log($"webview-ready provider={provider.Id} runtime={_environment.BrowserVersionString}");
+        _webView.CoreWebView2.Navigate(provider.HomeUri.AbsoluteUri);
     }
 
-    private void ConfigureWebView(CoreWebView2 core)
+    private void ConfigureWebView(CoreWebView2 core, ProviderDefinition provider)
     {
         core.Settings.AreDevToolsEnabled = false;
         core.Settings.IsPasswordAutosaveEnabled = false;
@@ -94,7 +128,7 @@ public sealed partial class MainPage : Page
 
         core.NavigationStarting += (_, args) =>
         {
-            if (IsKnownPurchaseUri(args.Uri))
+            if (provider.IsKnownPurchaseUri(args.Uri))
             {
                 args.Cancel = true;
                 Log($"purchase-navigation-blocked {SafeEventText.Origin(args.Uri)}");
@@ -111,7 +145,7 @@ public sealed partial class MainPage : Page
 
         core.NewWindowRequested += (_, args) =>
         {
-            if (IsKnownPurchaseUri(args.Uri))
+            if (provider.IsKnownPurchaseUri(args.Uri))
             {
                 args.Handled = true;
                 Log($"purchase-popup-blocked {SafeEventText.Origin(args.Uri)}");
@@ -129,34 +163,11 @@ public sealed partial class MainPage : Page
             Log($"process-failed kind={args.ProcessFailedKind} reason={args.Reason}");
     }
 
-    private static bool IsKnownPurchaseUri(string? rawUri)
-    {
-        if (!Uri.TryCreate(rawUri, UriKind.Absolute, out var uri))
-        {
-            return false;
-        }
-
-        var host = uri.IdnHost;
-        if (host is "pay.google.com" or "payments.google.com" or "one.google.com")
-        {
-            return true;
-        }
-
-        if (host != "gemini.google.com")
-        {
-            return false;
-        }
-
-        return uri.AbsolutePath.Contains("upgrade", StringComparison.OrdinalIgnoreCase)
-            || uri.AbsolutePath.Contains("advanced", StringComparison.OrdinalIgnoreCase)
-            || uri.AbsolutePath.Contains("subscription", StringComparison.OrdinalIgnoreCase);
-    }
-
     private void ReloadButton_Click(object sender, RoutedEventArgs e) => _webView?.Reload();
 
     private async void RestartButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_profilePath is null)
+        if (_profilePath is null || _currentProvider is null)
         {
             return;
         }
@@ -164,7 +175,7 @@ public sealed partial class MainPage : Page
         RestartButton.IsEnabled = false;
         try
         {
-            await InitializeWebViewAsync(_profilePath);
+            await InitializeWebViewAsync(_currentProvider, _profilePath);
         }
         catch (Exception exception)
         {
@@ -176,8 +187,55 @@ public sealed partial class MainPage : Page
         }
     }
 
-    private async void BrowserButton_Click(object sender, RoutedEventArgs e) =>
-        await Launcher.LaunchUriAsync(GeminiUri);
+    private async void BrowserButton_Click(object sender, RoutedEventArgs e)
+    {
+        var provider = SelectedProvider;
+        if (provider is not null)
+        {
+            await Launcher.LaunchUriAsync(provider.HomeUri);
+        }
+    }
+
+    private void ProviderBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_webView is null)
+        {
+            UpdateSelectedProviderUi();
+        }
+    }
+
+    private void UpdateSelectedProviderUi()
+    {
+        var provider = SelectedProvider;
+        if (provider is null)
+        {
+            return;
+        }
+
+        ProviderStatusText.Text = $"Provider: {provider.DisplayName} — {provider.CompatibilityStatus}";
+        PurchasePolicyText.Text = provider.PurchasePolicySummary;
+        EmptyStateText.Text = $"Choose a profile mode, then start {provider.DisplayName}.";
+        StartButton.Content = $"Start {provider.DisplayName}";
+    }
+
+    private void SetConfigurationEnabled(bool isEnabled)
+    {
+        ProviderBox.IsEnabled = isEnabled;
+        ProfileRootBox.IsEnabled = isEnabled;
+        ProfileModeBox.IsEnabled = isEnabled;
+    }
+
+    private void EndTest()
+    {
+        CloseWebView();
+        _environment = null;
+        _currentProvider = null;
+        _profilePath = null;
+        ProfilePathText.Text = "Profile: not started";
+        SetConfigurationEnabled(true);
+        UpdateSelectedProviderUi();
+        Log("webview-closed");
+    }
 
     private void ClearLogButton_Click(object sender, RoutedEventArgs e) => EventLogBox.Text = string.Empty;
 
@@ -197,9 +255,9 @@ public sealed partial class MainPage : Page
                 using var process = Process.GetProcessById(info.ProcessId);
                 memoryBytes += process.PrivateMemorySize64;
             }
-            catch (ArgumentException)
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or Win32Exception)
             {
-                // A WebView process can exit between the snapshot and inspection.
+                // A WebView process can exit or become inaccessible between the snapshot and inspection.
             }
         }
 
@@ -236,9 +294,9 @@ public sealed partial class MainPage : Page
                 using var process = Process.GetProcessById(info.ProcessId);
                 total += process.TotalProcessorTime;
             }
-            catch (ArgumentException)
+            catch (Exception exception) when (exception is ArgumentException or InvalidOperationException or Win32Exception)
             {
-                // A WebView process can exit between the snapshot and inspection.
+                // A WebView process can exit or become inaccessible between the snapshot and inspection.
             }
         }
 
@@ -249,6 +307,7 @@ public sealed partial class MainPage : Page
     {
         _metricsTimer.Stop();
         CloseWebView();
+        _environment = null;
     }
 
     private void CloseWebView()
@@ -256,6 +315,8 @@ public sealed partial class MainPage : Page
         _metricsTimer.Stop();
         _webView?.Close();
         _webView = null;
+        ReloadButton.IsEnabled = false;
+        RestartButton.IsEnabled = false;
         WebViewHost?.Children.Clear();
     }
 

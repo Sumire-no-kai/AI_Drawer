@@ -21,11 +21,12 @@
             IsIconVisible="True"
             IsOpen="True"
             Severity="Informational"
-            Title="Manual compatibility test"
+            Title="Manual provider compatibility test"
             Message="This harness never reads the page DOM and never records credentials, cookies, tokens, prompts, responses, or full URLs." />
 
         <Grid Grid.Row="1" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
@@ -34,13 +35,20 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
+            <ComboBox
+                x:Name="ProviderBox"
+                DisplayMemberPath="DisplayName"
+                Header="Provider"
+                MinWidth="170"
+                SelectionChanged="ProviderBox_SelectionChanged" />
             <TextBox
                 x:Name="ProfileRootBox"
+                Grid.Column="1"
                 Header="Test data root"
                 IsSpellCheckEnabled="False" />
             <ComboBox
                 x:Name="ProfileModeBox"
-                Grid.Column="1"
+                Grid.Column="2"
                 Header="Profile"
                 SelectedIndex="0">
                 <ComboBoxItem Content="Persistent" Tag="persistent" />
@@ -48,27 +56,27 @@
             </ComboBox>
             <Button
                 x:Name="StartButton"
-                Grid.Column="2"
+                Grid.Column="3"
                 VerticalAlignment="Bottom"
                 Click="StartButton_Click"
                 Content="Start Gemini" />
             <Button
                 x:Name="ReloadButton"
-                Grid.Column="3"
+                Grid.Column="4"
                 VerticalAlignment="Bottom"
                 Click="ReloadButton_Click"
                 Content="Reload"
                 IsEnabled="False" />
             <Button
                 x:Name="RestartButton"
-                Grid.Column="4"
+                Grid.Column="5"
                 VerticalAlignment="Bottom"
                 Click="RestartButton_Click"
                 Content="Restart WebView"
                 IsEnabled="False" />
             <Button
                 x:Name="BrowserButton"
-                Grid.Column="5"
+                Grid.Column="6"
                 VerticalAlignment="Bottom"
                 Click="BrowserButton_Click"
                 Content="Open in browser" />
@@ -84,7 +92,7 @@
                     x:Name="EmptyStateText"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
-                    Text="Choose a profile mode, then start Gemini."
+                    Text="Choose a provider and profile mode, then start a manual compatibility test."
                     TextWrapping="Wrap" />
             </Grid>
         </Border>
@@ -103,6 +111,8 @@
                 TextWrapping="Wrap" />
             <StackPanel Grid.Column="1" Spacing="8">
                 <TextBlock FontWeight="SemiBold" Text="Live diagnostics" />
+                <TextBlock x:Name="ProviderStatusText" Text="Provider: not selected" TextWrapping="Wrap" />
+                <TextBlock x:Name="PurchasePolicyText" Text="Purchase policy: not selected" TextWrapping="Wrap" />
                 <TextBlock x:Name="ProfilePathText" Text="Profile: not started" TextWrapping="Wrap" />
                 <TextBlock x:Name="ResourceText" Text="WebView processes: —&#x0a;Private memory: —&#x0a;CPU: —" />
                 <Button Click="ClearLogButton_Click" Content="Clear event view" />

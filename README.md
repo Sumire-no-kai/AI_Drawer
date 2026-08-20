@@ -1,5 +1,7 @@
 # AI Drawer
 
+> **Repository version:** `0.0.1-dev` · **Development status:** `M0 — Compatibility Lab` · **Initial platform:** `Windows 11`
+
 > A lightweight, privacy-respecting Windows workspace for the AI web apps you already use.
 >
 > 一个轻量、隐私克制的多 AI Windows 桌面快捷入口。
@@ -26,7 +28,7 @@ The provisionally approved interface is deliberately small: one compact workspac
 
 ## Current status
 
-Development is in **Milestone 0: Provider Compatibility Lab**.
+Development is in **Milestone 0: Provider Compatibility Lab**. The repository currently contains a deliberately small manual test harness for the initial provider matrix; it is not the production application shell.
 
 | Provider | Current status | Evidence boundary |
 | --- | --- | --- |
@@ -34,6 +36,8 @@ Development is in **Milestone 0: Provider Compatibility Lab**.
 | Other providers | `Not tested` | Candidate providers must pass the PRD compatibility gates before they can be advertised as supported. |
 
 The Gemini result shows technical feasibility only. It is not a statement of official Google approval or universal compatibility across accounts, regions, policies, or future website versions.
+
+See the [manual M0 test plan](docs/testing/Provider_WebView2_Compatibility_Test_Plan.md) and [compatibility matrix](docs/testing/Provider_Compatibility_Matrix.md) for the current evidence boundary.
 
 ## Privacy boundary
 
