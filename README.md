@@ -1,6 +1,8 @@
 # AI Drawer
 
-> **Repository version:** `0.0.1-dev` · **Development status:** `M0 — Compatibility Lab` · **Initial platform:** `Windows 11`
+![Repository version](https://img.shields.io/badge/version-0.0.1--dev-181717?style=flat-square&labelColor=181717)
+![Development status](https://img.shields.io/badge/status-M0%20Compatibility%20Lab-181717?style=flat-square&labelColor=181717)
+![Initial platform](https://img.shields.io/badge/platform-Windows%2011-181717?style=flat-square&labelColor=181717)
 
 > A lightweight, privacy-respecting Windows workspace for the AI web apps you already use.
 >
