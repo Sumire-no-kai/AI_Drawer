@@ -1,7 +1,7 @@
 # AI Drawer
 
 ![Repository version](https://img.shields.io/badge/version-0.0.1--dev-181717?style=flat-square&labelColor=181717)
-![Development status](https://img.shields.io/badge/status-M0%20Compatibility%20Lab-181717?style=flat-square&labelColor=181717)
+![Development status](https://img.shields.io/badge/status-M1%20Windows%20Shell-181717?style=flat-square&labelColor=181717)
 ![Initial platform](https://img.shields.io/badge/platform-Windows%2011-181717?style=flat-square&labelColor=181717)
 
 > A lightweight, privacy-respecting Windows workspace for the AI web apps you already use.
@@ -30,7 +30,7 @@ The provisionally approved interface is deliberately small: one compact workspac
 
 ## Current status
 
-Development is in **Milestone 0: Provider Compatibility Lab**. The repository currently contains a deliberately small manual test harness for the initial provider matrix; it is not the production application shell.
+Development is in **Milestone 1: Windows Shell**. The repository contains the M0 manual compatibility harness and an in-progress native WinUI 3 shell that currently loads Gemini as an `Experimental` provider. There is no public end-user build yet, and M1 is not an MVP acceptance claim.
 
 | Provider | Current status | Evidence boundary |
 | --- | --- | --- |
@@ -81,12 +81,37 @@ macOS may be explored later as a separate native shell using SwiftUI/AppKit and 
 | Windows integration | Win32 interop where required |
 | Primary packaging | MSIX |
 
+## Development dependencies
+
+The current Windows shell is developed and built with:
+
+| Dependency | Purpose | License |
+| --- | --- | --- |
+| .NET 10 SDK | C# build tooling | MIT |
+| Windows App SDK 2.2.0 | WinUI 3 application platform | MIT |
+| Microsoft Edge WebView2 Evergreen Runtime | Provider-owned web content runtime | Microsoft Software License Terms |
+| H.NotifyIcon.WinUI 2.4.1 | Windows notification-area icon integration | MIT |
+| Microsoft Windows SDK Build Tools | MSIX build and package tooling | MIT |
+
+Third-party notices are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Dependencies are used only for the native desktop shell; AI Drawer does not bundle, proxy, or modify provider web applications.
+
+## Build the current development shell
+
+This is contributor-only guidance, not an end-user installation path. On Windows 11 with the .NET 10 SDK and the WebView2 Evergreen Runtime available:
+
+```powershell
+dotnet restore src/AIDrawer.App/AIDrawer.App.csproj
+dotnet build src/AIDrawer.App/AIDrawer.App.csproj --configuration Debug --arch x64
+```
+
+The packaged Debug launch profile also requires Windows Developer Mode on the development machine. No installer, signing configuration, or public release artifact is included yet.
+
 ## Project documents
 
 - [Product principles](PRODUCT.md)
 - [Apache License 2.0](LICENSE)
 
-Build and contributor instructions will be added as the compatibility harness is prepared for review on the main branch. Provider compatibility contributions must include reproducible environment details and test evidence; adding a URL alone does not establish support.
+Provider compatibility contributions must include reproducible environment details and test evidence; adding a URL alone does not establish support.
 
 ## Roadmap
 
