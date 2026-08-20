@@ -34,6 +34,14 @@ This is the durable development record for implementation decisions, verified be
 - Doubao authentication used `accounts.feishu.cn` and returned to `www.doubao.com`.
 - Transient `ConnectionAborted` events during Grok and Doubao redirects were followed by successful navigation and are observations, not standalone compatibility failures.
 
+### Settings data-reset decision
+
+- The production settings page will distinguish cache cleanup from destructive website-data reset. `Clear cache` is intended to preserve sign-in; `Reset website data` clears the selected WebView2 profile's cookies, storage, permissions, and cache and therefore signs that local workspace out.
+- Reset scope follows the profile boundary: one workspace first, optionally all workspaces for one provider, and a separately confirmed global reset for all AI Drawer web profiles.
+- All affected WebViews must be disposed before reset. Cleanup uses WebView2 profile/data APIs without reading cookies, tokens, page content, prompts, or responses.
+- The confirmation text must state that local sign-in is removed but the provider account and provider-hosted conversation history are not deleted. Re-authentication may make that history visible again.
+- This is a requirement for the production settings experience, not an M0 Compatibility Lab feature.
+
 ## 2026-08-20 — M0 provider-matrix harness foundation
 
 ### Scope

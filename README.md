@@ -61,6 +61,7 @@ WebView2 still maintains ordinary browser-origin data such as cookies and local 
 - multiple provider and same-provider workspaces;
 - lazy WebView creation with a bounded live-view budget;
 - persistent, provider-isolated WebView profiles;
+- settings to clear temporary cache or explicitly reset one provider workspace, one provider, or all local website data;
 - safe system-browser handoff for unrelated navigation;
 - clear permission and compatibility states;
 - wait, reload, and same-profile restart recovery;
