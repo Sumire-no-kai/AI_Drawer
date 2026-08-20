@@ -2,6 +2,38 @@
 
 This is the durable development record for implementation decisions, verified behavior, limitations, and open work. It is not a release changelog. Planned behavior must not be presented as shipped or provider-compatible behavior.
 
+## 2026-08-20 — Initial multi-provider manual sweep
+
+### Scope and evidence
+
+- One manually operated sweep covered Grok, ChatGPT, Claude, DeepSeek, Doubao, Qwen Studio, and GLM using persistent provider profiles and WebView2 Runtime `151.0.4129.93`.
+- Evidence consists of the user's direct observations and a sanitized in-memory event log containing event categories and origins only. The exact repository commit, Windows build, account classes, region, prompt text, and response text were not recorded for this sweep.
+- The results are environment-scoped and incomplete. None of these providers becomes `Verified` from this run.
+
+### Recorded outcomes
+
+1. **Grok is `Limited`, with root cause open.** X sign-in returned successfully and the same-profile WebView recreation retained login. Conversation submission completed and user-initiated copy returned the reply text, but the reply itself rendered blank. A normal Edge or Chrome comparison is still required before attributing this to WebView2. The Grok purchase page remained reachable.
+2. **ChatGPT is `Experimental`.** Initial sign-in and basic use were reported normal, including navigation through Google authentication origins. Its purchase page remained reachable, so the tested purchase boundary failed and requires narrow route discovery.
+3. **Claude is `Experimental`.** Google sign-in opened a separate small popup and returned successfully. Plan content is present inside the provider page. AI Drawer will not inspect or alter the DOM to hide it; the actual checkout transition remains untested.
+4. **DeepSeek, Doubao, Qwen Studio, and GLM are `Experimental`.** Initial page, sign-in where exercised, and basic use were reported normal, but required feature, persistence, recovery, resource, and purchase cases remain incomplete.
+5. **Do not equate a subscription panel with completed checkout.** Doubao's informational subscription modal remains visible. The native boundary should act when a reviewed checkout, payment, recharge, or billing transition is attempted, not by manipulating provider-owned page content.
+
+### Regional-entry decisions
+
+- Qwen Studio (`chat.qwen.ai`) and Tongyi Qianwen (`tongyi.aliyun.com/qianwen`) are separate international and China candidates.
+- GLM / 智谱清言 (`chatglm.cn`) and Z.ai (`chat.z.ai`) are separate China and international candidates.
+- Each regional candidate receives an independent persistent profile and compatibility result. Evidence and login state do not transfer between regional sites.
+- Existing profile IDs `doubao`, `qwen`, and `glm` are preserved so the tester's local D-drive sessions are not orphaned. Only the new regional candidates receive new IDs.
+- An international Doubao-family entry remains open. Cici currently redirects toward Dola, so brand relationship, regional availability, and the stable official chat entry must be reviewed before hard-coding a candidate.
+
+### Navigation observations
+
+- Grok authentication used sanitized origins including `accounts.x.ai`, `x.com`, `auth.grok.com`, `auth.grokusercontent.com`, `auth.x.ai`, and `auth.grokipedia.com`.
+- ChatGPT navigation included `auth.openai.com` and Google account origins. A permission request was logged as numeric kind `13`; its semantic permission name was not inferred.
+- Claude requested Google authentication and `claude.com` popups.
+- Doubao authentication used `accounts.feishu.cn` and returned to `www.doubao.com`.
+- Transient `ConnectionAborted` events during Grok and Doubao redirects were followed by successful navigation and are observations, not standalone compatibility failures.
+
 ## 2026-08-20 — M0 provider-matrix harness foundation
 
 ### Scope

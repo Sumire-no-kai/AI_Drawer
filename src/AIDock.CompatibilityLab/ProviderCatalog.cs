@@ -9,20 +9,26 @@ internal static class ProviderCatalog
 
     internal static readonly IReadOnlyList<ProviderDefinition> InitialCandidates =
     [
-        Create("chatgpt", "ChatGPT", "https://chatgpt.com/"),
-        Create("claude", "Claude", "https://claude.ai/"),
+        Create("chatgpt", "ChatGPT", "Experimental", "https://chatgpt.com/"),
+        Create("claude", "Claude", "Experimental", "https://claude.ai/"),
         CreateGemini(),
-        Create("grok", "Grok", "https://grok.com/"),
-        Create("deepseek", "DeepSeek", "https://chat.deepseek.com/"),
-        Create("doubao", "Doubao / 豆包", "https://www.doubao.com/"),
-        Create("qwen", "Qwen / 通义千问", "https://chat.qwen.ai/"),
-        Create("glm", "GLM / 智谱清言", "https://chatglm.cn/")
+        Create("grok", "Grok", "Limited", "https://grok.com/"),
+        Create("deepseek", "DeepSeek", "Experimental", "https://chat.deepseek.com/"),
+        Create("doubao", "Doubao / 豆包 (China)", "Experimental", "https://www.doubao.com/"),
+        Create("qwen", "Qwen Studio (International)", "Experimental", "https://chat.qwen.ai/"),
+        Create("qwen-cn", "Tongyi Qianwen / 通义千问 (China)", "Not tested candidate", "https://tongyi.aliyun.com/qianwen/"),
+        Create("glm", "GLM / 智谱清言 (China)", "Experimental", "https://chatglm.cn/"),
+        Create("zai", "Z.ai (International)", "Not tested candidate", "https://chat.z.ai/")
     ];
 
-    private static ProviderDefinition Create(string id, string displayName, string homeUrl) => new(
+    private static ProviderDefinition Create(
+        string id,
+        string displayName,
+        string compatibilityStatus,
+        string homeUrl) => new(
         id,
         displayName,
-        "Not tested candidate",
+        compatibilityStatus,
         new Uri(homeUrl),
         NoPurchaseHosts,
         NoPurchasePathFragments);
