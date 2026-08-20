@@ -20,7 +20,7 @@ function New-RoundedRectanglePath {
     return $path
 }
 
-function New-DrawerBitmap {
+function New-BrandBitmap {
     param(
         [int]$Width,
         [int]$Height
@@ -35,31 +35,26 @@ function New-DrawerBitmap {
     $scale = $canvas / 128.0
     $offsetX = ($Width - $canvas) / 2.0
     $offsetY = ($Height - $canvas) / 2.0
-    $black = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(255, 24, 24, 27))
-    $white = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::White)
-    $backOutline = [System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(140, 255, 255, 255), 7 * $scale)
-    $backOutline.Alignment = [System.Drawing.Drawing2D.PenAlignment]::Inset
+    $accent = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(255, 89, 107, 255))
 
-    $body = [System.Drawing.RectangleF]::new($offsetX + 14 * $scale, $offsetY + 14 * $scale, 100 * $scale, 100 * $scale)
-    $backDrawer = [System.Drawing.RectangleF]::new($offsetX + 28 * $scale, $offsetY + 28 * $scale, 66 * $scale, 66 * $scale)
-    $frontDrawer = [System.Drawing.RectangleF]::new($offsetX + 38 * $scale, $offsetY + 38 * $scale, 66 * $scale, 66 * $scale)
-    $handleBounds = [System.Drawing.RectangleF]::new($offsetX + 58 * $scale, $offsetY + 68 * $scale, 26 * $scale, 6 * $scale)
-    $bodyPath = New-RoundedRectanglePath $body (24 * $scale)
-    $backDrawerPath = New-RoundedRectanglePath $backDrawer (14 * $scale)
-    $frontDrawerPath = New-RoundedRectanglePath $frontDrawer (14 * $scale)
-    $handlePath = New-RoundedRectanglePath $handleBounds (3 * $scale)
-    $graphics.FillPath($black, $bodyPath)
-    $graphics.DrawPath($backOutline, $backDrawerPath)
-    $graphics.FillPath($white, $frontDrawerPath)
-    $graphics.FillPath($black, $handlePath)
+    $markBounds = [System.Drawing.RectangleF]::new($offsetX + 53 * $scale, $offsetY + 12 * $scale, 22 * $scale, 104 * $scale)
+    $markPath = New-RoundedRectanglePath $markBounds (11 * $scale)
+    $markCenter = [System.Drawing.PointF]::new($offsetX + 64 * $scale, $offsetY + 64 * $scale)
 
-    $bodyPath.Dispose()
-    $backDrawerPath.Dispose()
-    $frontDrawerPath.Dispose()
-    $handlePath.Dispose()
-    $black.Dispose()
-    $white.Dispose()
-    $backOutline.Dispose()
+    $graphics.FillPath($accent, $markPath)
+
+    foreach ($angle in 60, 120) {
+        $rotatedMarkPath = $markPath.Clone()
+        $rotation = [System.Drawing.Drawing2D.Matrix]::new()
+        $rotation.RotateAt($angle, $markCenter)
+        $rotatedMarkPath.Transform($rotation)
+        $graphics.FillPath($accent, $rotatedMarkPath)
+        $rotation.Dispose()
+        $rotatedMarkPath.Dispose()
+    }
+
+    $markPath.Dispose()
+    $accent.Dispose()
     $graphics.Dispose()
     return $bitmap
 }
@@ -71,7 +66,7 @@ function Save-DrawerPng {
         [int]$Height
     )
 
-    $bitmap = New-DrawerBitmap $Width $Height
+    $bitmap = New-BrandBitmap $Width $Height
     $bitmap.Save((Join-Path $AssetsPath $Name), [System.Drawing.Imaging.ImageFormat]::Png)
     $bitmap.Dispose()
 }
@@ -85,7 +80,7 @@ Save-DrawerPng 'Square44x44Logo.targetsize-48_altform-lightunplated.png' 48 48
 Save-DrawerPng 'StoreLogo.png' 50 50
 Save-DrawerPng 'Wide310x150Logo.scale-200.png' 620 300
 
-$iconBitmap = New-DrawerBitmap 256 256
+$iconBitmap = New-BrandBitmap 256 256
 $icon = [System.Drawing.Icon]::FromHandle($iconBitmap.GetHicon())
 $stream = [System.IO.File]::Open((Join-Path $AssetsPath 'AppIcon.ico'), [System.IO.FileMode]::Create)
 $icon.Save($stream)

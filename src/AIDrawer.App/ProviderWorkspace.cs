@@ -10,6 +10,7 @@ internal sealed class ProviderWorkspace : IDisposable
     private readonly Grid _host = new();
     private readonly Func<PermissionRequest, Task<PermissionDecision>> _requestPermissionAsync;
     private WebView2? _webView;
+    private bool _hasCompletedInitialNavigation;
     private bool _disposed;
 
     internal ProviderWorkspace(
@@ -74,10 +75,6 @@ internal sealed class ProviderWorkspace : IDisposable
             return;
         }
 
-        RaiseState(
-            $"Reloading {Provider.DisplayName}",
-            "The provider page is reloading. Its local website profile is preserved.",
-            InfoBarSeverity.Informational);
         _webView.Reload();
     }
 
@@ -87,7 +84,8 @@ internal sealed class ProviderWorkspace : IDisposable
         RaiseState(
             $"Restarting {Provider.DisplayName}",
             "Recreating this provider workspace with the same local profile.",
-            InfoBarSeverity.Informational);
+            InfoBarSeverity.Informational,
+            activity: WorkspaceActivity.Opening);
         CloseWebView();
         await ActivateAsync(environment, windowIsVisible);
     }
@@ -139,7 +137,8 @@ internal sealed class ProviderWorkspace : IDisposable
         RaiseState(
             $"Loading {Provider.DisplayName}",
             "Preparing a local AI Drawer workspace.",
-            InfoBarSeverity.Informational);
+            InfoBarSeverity.Informational,
+            activity: WorkspaceActivity.Opening);
 
         try
         {
@@ -191,7 +190,14 @@ internal sealed class ProviderWorkspace : IDisposable
             {
                 args.Cancel = true;
                 OpenExternalUri(args.Uri);
+                return;
             }
+
+            RaiseState(
+                _hasCompletedInitialNavigation ? $"Updating {Provider.DisplayName}" : $"Opening {Provider.DisplayName}",
+                "Keeping the AI Drawer navigation available while the provider page changes.",
+                InfoBarSeverity.Informational,
+                activity: _hasCompletedInitialNavigation ? WorkspaceActivity.Navigating : WorkspaceActivity.Opening);
         };
 
         core.FrameNavigationStarting += (_, args) =>
@@ -263,6 +269,7 @@ internal sealed class ProviderWorkspace : IDisposable
 
             if (args.IsSuccess)
             {
+                _hasCompletedInitialNavigation = true;
                 RaiseState(
                     Provider.DisplayName,
                     $"{Provider.CompatibilityStatus}. Provider sign-in and conversations are managed by the provider in this local profile.",
@@ -324,13 +331,25 @@ internal sealed class ProviderWorkspace : IDisposable
 
     private bool IsCurrent(CoreWebView2 core) => ReferenceEquals(_webView?.CoreWebView2, core);
 
-    private void RaiseState(string title, string message, InfoBarSeverity severity, bool requiresRecovery = false) =>
-        StateChanged?.Invoke(this, new WorkspaceStateChangedEventArgs(WorkspaceId, title, message, severity, requiresRecovery));
+    private void RaiseState(
+        string title,
+        string message,
+        InfoBarSeverity severity,
+        bool requiresRecovery = false,
+        WorkspaceActivity activity = WorkspaceActivity.None) =>
+        StateChanged?.Invoke(this, new WorkspaceStateChangedEventArgs(
+            WorkspaceId,
+            title,
+            message,
+            severity,
+            requiresRecovery,
+            activity));
 
     private void CloseWebView()
     {
         _webView?.Close();
         _webView = null;
+        _hasCompletedInitialNavigation = false;
         _host.Children.Clear();
     }
 
@@ -357,16 +376,25 @@ internal sealed record PermissionRequest(
 
 internal sealed record PermissionDecision(bool Allowed, bool Remember);
 
+internal enum WorkspaceActivity
+{
+    None,
+    Opening,
+    Navigating
+}
+
 internal sealed class WorkspaceStateChangedEventArgs(
     string workspaceId,
     string title,
     string message,
     InfoBarSeverity severity,
-    bool requiresRecovery = false) : EventArgs
+    bool requiresRecovery = false,
+    WorkspaceActivity activity = WorkspaceActivity.None) : EventArgs
 {
     internal string WorkspaceId { get; } = workspaceId;
     internal string Title { get; } = title;
     internal string Message { get; } = message;
     internal InfoBarSeverity Severity { get; } = severity;
     internal bool RequiresRecovery { get; } = requiresRecovery;
+    internal WorkspaceActivity Activity { get; } = activity;
 }

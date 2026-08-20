@@ -13,6 +13,24 @@
     <Grid>
         <Grid.Resources>
             <XamlUICommand x:Key="OpenFromTrayCommand" ExecuteRequested="OpenFromTrayCommand_ExecuteRequested" />
+            <XamlUICommand x:Key="ExitFromTrayCommand" ExecuteRequested="ExitFromTrayCommand_ExecuteRequested" />
+            <MenuFlyout x:Key="TrayContextMenu">
+                <MenuFlyoutItem
+                    Text="Open AI Drawer"
+                    Command="{StaticResource OpenFromTrayCommand}">
+                    <MenuFlyoutItem.Icon>
+                        <FontIcon Glyph="&#xE8A7;" />
+                    </MenuFlyoutItem.Icon>
+                </MenuFlyoutItem>
+                <MenuFlyoutSeparator />
+                <MenuFlyoutItem
+                    Text="Exit AI Drawer"
+                    Command="{StaticResource ExitFromTrayCommand}">
+                    <MenuFlyoutItem.Icon>
+                        <FontIcon Glyph="&#xE8BB;" />
+                    </MenuFlyoutItem.Icon>
+                </MenuFlyoutItem>
+            </MenuFlyout>
         </Grid.Resources>
 
         <Grid.RowDefinitions>
@@ -32,6 +50,8 @@
             x:Name="TrayIcon"
             ToolTipText="AI Drawer"
             IconSource="/Assets/AppIcon.ico"
-            LeftClickCommand="{StaticResource OpenFromTrayCommand}" />
+            LeftClickCommand="{StaticResource OpenFromTrayCommand}"
+            ContextFlyout="{StaticResource TrayContextMenu}"
+            MenuActivation="RightClick" />
     </Grid>
 </Window>
