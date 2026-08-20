@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "AIDock.CompatibilityLab (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "AIDock.CompatibilityLab (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
