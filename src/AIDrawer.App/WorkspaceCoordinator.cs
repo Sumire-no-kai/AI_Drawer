@@ -11,9 +11,10 @@ internal sealed class WorkspaceCoordinator : IDisposable
         "WebView2");
 
     private readonly Panel _host;
+    private readonly Func<PermissionRequest, Task<PermissionDecision>> _requestPermissionAsync;
     private readonly SemaphoreSlim _selectionLock = new(1, 1);
     private readonly CancellationTokenSource _lifetimeCancellation = new();
-    private readonly Dictionary<string, ProviderWorkspace> _workspaces;
+    private readonly Dictionary<string, ProviderWorkspace> _workspaces = new(StringComparer.Ordinal);
     private readonly Task<CoreWebView2Environment> _environmentTask;
     private bool _disposed;
     private bool _windowIsVisible = true;
@@ -24,16 +25,7 @@ internal sealed class WorkspaceCoordinator : IDisposable
     {
         _host = host;
         _environmentTask = CreateEnvironmentAsync();
-        _workspaces = ProviderCatalog.AvailableProviders.ToDictionary(
-            provider => provider.Id,
-            provider => new ProviderWorkspace(provider, requestPermissionAsync),
-            StringComparer.OrdinalIgnoreCase);
-
-        foreach (var workspace in _workspaces.Values)
-        {
-            workspace.StateChanged += Workspace_StateChanged;
-            _host.Children.Add(workspace.View);
-        }
+        _requestPermissionAsync = requestPermissionAsync;
     }
 
     internal event EventHandler<WorkspaceStateChangedEventArgs>? StateChanged;
@@ -42,12 +34,19 @@ internal sealed class WorkspaceCoordinator : IDisposable
 
     internal ProviderWorkspace? ActiveWorkspace { get; private set; }
 
-    internal async Task SelectAsync(string providerId)
+    internal async Task ActivateAsync(string workspaceId, ProviderDefinition provider)
     {
         ThrowIfDisposed();
-        if (!_workspaces.TryGetValue(providerId, out var nextWorkspace))
+        if (!_workspaces.TryGetValue(workspaceId, out var nextWorkspace))
         {
-            throw new ArgumentOutOfRangeException(nameof(providerId));
+            nextWorkspace = new ProviderWorkspace(workspaceId, provider, _requestPermissionAsync);
+            nextWorkspace.StateChanged += Workspace_StateChanged;
+            _workspaces.Add(workspaceId, nextWorkspace);
+            _host.Children.Add(nextWorkspace.View);
+        }
+        else if (!string.Equals(nextWorkspace.Provider.Id, provider.Id, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("A workspace cannot change providers after it has been opened.");
         }
 
         try
@@ -104,6 +103,44 @@ internal sealed class WorkspaceCoordinator : IDisposable
     }
 
     internal void ReloadActiveWorkspace() => ActiveWorkspace?.Reload();
+
+    internal void DeactivateActiveWorkspace()
+    {
+        ActiveWorkspace?.Deactivate();
+        ActiveWorkspace = null;
+    }
+
+    internal async Task RemoveWorkspaceAsync(string workspaceId)
+    {
+        try
+        {
+            await _selectionLock.WaitAsync(_lifetimeCancellation.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        try
+        {
+            if (_disposed || !_workspaces.Remove(workspaceId, out var workspace))
+            {
+                return;
+            }
+
+            if (ReferenceEquals(ActiveWorkspace, workspace))
+            {
+                ActiveWorkspace = null;
+            }
+
+            workspace.Dispose();
+            _host.Children.Remove(workspace.View);
+        }
+        finally
+        {
+            _selectionLock.Release();
+        }
+    }
 
     internal async Task RestartActiveWorkspaceAsync()
     {

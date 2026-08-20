@@ -9,6 +9,7 @@
     Loaded="MainPage_Loaded"
     Unloaded="MainPage_Unloaded">
     <Page.KeyboardAccelerators>
+        <KeyboardAccelerator Key="N" Modifiers="Control" Invoked="NewWorkspaceShortcut_Invoked" />
         <KeyboardAccelerator Key="Number1" Modifiers="Control" Invoked="ProviderShortcut_Invoked" />
         <KeyboardAccelerator Key="Number2" Modifiers="Control" Invoked="ProviderShortcut_Invoked" />
         <KeyboardAccelerator Key="Number3" Modifiers="Control" Invoked="ProviderShortcut_Invoked" />
@@ -18,58 +19,74 @@
         <KeyboardAccelerator Key="Number7" Modifiers="Control" Invoked="ProviderShortcut_Invoked" />
         <KeyboardAccelerator Key="Number8" Modifiers="Control" Invoked="ProviderShortcut_Invoked" />
     </Page.KeyboardAccelerators>
+
     <Page.Resources>
-            <ResourceDictionary>
-                <ResourceDictionary.ThemeDictionaries>
-                    <ResourceDictionary x:Key="Light">
-                        <SolidColorBrush x:Key="WorkspaceTabActiveBrush" Color="#12000000" />
-                    </ResourceDictionary>
-                    <ResourceDictionary x:Key="Dark">
-                        <SolidColorBrush x:Key="WorkspaceTabActiveBrush" Color="#24FFFFFF" />
-                    </ResourceDictionary>
-                </ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="WorkspaceTabActiveBrush" Color="#12000000" />
+                    <SolidColorBrush x:Key="ProviderTableBorderBrush" Color="#18000000" />
+                    <SolidColorBrush x:Key="ProviderTableHeaderBrush" Color="#06000000" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="WorkspaceTabActiveBrush" Color="#24FFFFFF" />
+                    <SolidColorBrush x:Key="ProviderTableBorderBrush" Color="#2AFFFFFF" />
+                    <SolidColorBrush x:Key="ProviderTableHeaderBrush" Color="#0FFFFFFF" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
 
-                <Style x:Key="WorkspaceTabButtonStyle" TargetType="Button">
-                    <Setter Property="Background" Value="Transparent" />
-                    <Setter Property="BorderBrush" Value="Transparent" />
-                    <Setter Property="BorderThickness" Value="0" />
-                    <Setter Property="CornerRadius" Value="6" />
-                    <Setter Property="MinHeight" Value="36" />
-                    <Setter Property="Padding" Value="8,6" />
-                </Style>
+            <Style x:Key="WorkspaceTabButtonStyle" TargetType="Button">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="CornerRadius" Value="6" />
+                <Setter Property="MinHeight" Value="36" />
+                <Setter Property="Padding" Value="10,6,30,6" />
+            </Style>
 
-                <Style x:Key="WorkspaceActionButtonStyle" TargetType="Button" BasedOn="{StaticResource WorkspaceTabButtonStyle}">
-                    <Setter Property="MinWidth" Value="36" />
-                    <Setter Property="Padding" Value="8" />
-                </Style>
-            </ResourceDictionary>
+            <Style x:Key="WorkspaceActionButtonStyle" TargetType="Button" BasedOn="{StaticResource WorkspaceTabButtonStyle}">
+                <Setter Property="MinWidth" Value="36" />
+                <Setter Property="Padding" Value="8" />
+            </Style>
+
+            <Style x:Key="TabCloseButtonStyle" TargetType="Button">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="Width" Value="24" />
+                <Setter Property="Height" Value="24" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="CornerRadius" Value="4" />
+            </Style>
+
+            <Style x:Key="ProviderChoiceButtonStyle" TargetType="Button">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+                <Setter Property="BorderThickness" Value="0" />
+                <Setter Property="CornerRadius" Value="0" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                <Setter Property="MinHeight" Value="52" />
+                <Setter Property="Padding" Value="14,8" />
+            </Style>
+        </ResourceDictionary>
     </Page.Resources>
 
     <Grid>
-
         <Grid.RowDefinitions>
-            <RowDefinition Height="60" />
+            <RowDefinition Height="52" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Padding="12,8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+        <Grid Grid.Row="0" Padding="10,6" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <Image
-                Width="26"
-                Height="26"
-                Margin="2,0,10,0"
-                AutomationProperties.Name="AI Drawer"
-                Source="/Assets/Square44x44Logo.targetsize-48_altform-lightunplated.png" />
-
             <ScrollViewer
-                Grid.Column="1"
                 VerticalScrollBarVisibility="Disabled"
                 HorizontalScrollBarVisibility="Hidden"
                 HorizontalScrollMode="Enabled"
@@ -79,24 +96,24 @@
 
             <TextBlock
                 x:Name="CompatibilityStatusText"
-                Grid.Column="2"
+                Grid.Column="1"
                 Margin="8,0"
                 VerticalAlignment="Center"
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                Text="Compatibility" />
+                Visibility="Collapsed" />
 
-            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="2">
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2">
                 <Button
                     Style="{StaticResource WorkspaceActionButtonStyle}"
-                    ToolTipService.ToolTip="Open a provider workspace">
+                    ToolTipService.ToolTip="New workspace (Ctrl + N)"
+                    Click="NewWorkspaceButton_Click">
                     <FontIcon Glyph="&#xE710;" />
-                    <Button.Flyout>
-                        <MenuFlyout x:Name="OpenWorkspaceFlyout" />
-                    </Button.Flyout>
                 </Button>
                 <Button
+                    x:Name="WorkspaceActionsButton"
                     Style="{StaticResource WorkspaceActionButtonStyle}"
-                    ToolTipService.ToolTip="Workspace actions">
+                    ToolTipService.ToolTip="Workspace actions"
+                    IsEnabled="False">
                     <FontIcon Glyph="&#xE712;" />
                     <Button.Flyout>
                         <MenuFlyout>
@@ -123,14 +140,77 @@
         <InfoBar
             x:Name="StatusBar"
             Grid.Row="1"
-            IsOpen="True"
+            IsOpen="False"
             IsClosable="False"
-            Severity="Informational"
-            Title="Loading workspace"
-            Message="Preparing your private AI Drawer workspace." />
+            Severity="Informational" />
 
         <Grid Grid.Row="2">
-            <Grid x:Name="WebViewHost" />
+            <Grid x:Name="HomePanel">
+                <ScrollViewer
+                    HorizontalContentAlignment="Stretch"
+                    VerticalScrollBarVisibility="Auto">
+                    <StackPanel
+                        MaxWidth="560"
+                        Margin="24,40"
+                        HorizontalAlignment="Stretch"
+                        VerticalAlignment="Center"
+                        Spacing="10">
+                        <TextBlock Text="Continue your work" FontSize="28" FontWeight="SemiBold" />
+                        <TextBlock
+                            Text="Start a private workspace for an AI service you already use. Each workspace can open any platform, including another instance of the same one."
+                            TextWrapping="Wrap"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock Margin="0,14,0,0" Text="Choose an AI platform" FontWeight="SemiBold" />
+                        <Border
+                            Margin="0,2,0,0"
+                            BorderBrush="{ThemeResource ProviderTableBorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8">
+                            <StackPanel>
+                                <Grid
+                                    Height="36"
+                                    Padding="14,0"
+                                    Background="{ThemeResource ProviderTableHeaderBrush}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="42" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="96" />
+                                        <ColumnDefinition Width="72" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock
+                                        Grid.Column="1"
+                                        VerticalAlignment="Center"
+                                        FontSize="12"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Text="Platform" />
+                                    <TextBlock
+                                        Grid.Column="2"
+                                        VerticalAlignment="Center"
+                                        FontSize="12"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Text="Status" />
+                                    <TextBlock
+                                        Grid.Column="3"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Center"
+                                        FontSize="12"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                        Text="Shortcut" />
+                                </Grid>
+                                <StackPanel x:Name="ProviderChooser" />
+                            </StackPanel>
+                        </Border>
+                        <TextBlock
+                            Margin="0,10,0,0"
+                            FontSize="12"
+                            Text="Provider marks identify official sites. AI Drawer is independent and does not read your conversations."
+                            TextWrapping="Wrap"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+
+            <Grid x:Name="WebViewHost" Visibility="Collapsed" />
 
             <Grid x:Name="RecoveryPanel" Background="{ThemeResource SolidBackgroundFillColorBaseBrush}" Visibility="Collapsed">
                 <StackPanel

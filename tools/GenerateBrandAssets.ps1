@@ -35,24 +35,31 @@ function New-DrawerBitmap {
     $scale = $canvas / 128.0
     $offsetX = ($Width - $canvas) / 2.0
     $offsetY = ($Height - $canvas) / 2.0
-    $black = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(255, 22, 22, 22))
+    $black = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::FromArgb(255, 24, 24, 27))
     $white = [System.Drawing.SolidBrush]::new([System.Drawing.Color]::White)
+    $backOutline = [System.Drawing.Pen]::new([System.Drawing.Color]::FromArgb(140, 255, 255, 255), 7 * $scale)
+    $backOutline.Alignment = [System.Drawing.Drawing2D.PenAlignment]::Inset
 
-    $body = [System.Drawing.RectangleF]::new($offsetX + 14 * $scale, $offsetY + 20 * $scale, 100 * $scale, 88 * $scale)
-    $drawer = [System.Drawing.RectangleF]::new($offsetX + 24 * $scale, $offsetY + 43 * $scale, 80 * $scale, 44 * $scale)
-    $handle = [System.Drawing.RectangleF]::new($offsetX + 49 * $scale, $offsetY + 61 * $scale, 30 * $scale, 7 * $scale)
-    $bodyPath = New-RoundedRectanglePath $body (20 * $scale)
-    $drawerPath = New-RoundedRectanglePath $drawer (10 * $scale)
-    $handlePath = New-RoundedRectanglePath $handle (3.5 * $scale)
+    $body = [System.Drawing.RectangleF]::new($offsetX + 14 * $scale, $offsetY + 14 * $scale, 100 * $scale, 100 * $scale)
+    $backDrawer = [System.Drawing.RectangleF]::new($offsetX + 28 * $scale, $offsetY + 28 * $scale, 66 * $scale, 66 * $scale)
+    $frontDrawer = [System.Drawing.RectangleF]::new($offsetX + 38 * $scale, $offsetY + 38 * $scale, 66 * $scale, 66 * $scale)
+    $handleBounds = [System.Drawing.RectangleF]::new($offsetX + 58 * $scale, $offsetY + 68 * $scale, 26 * $scale, 6 * $scale)
+    $bodyPath = New-RoundedRectanglePath $body (24 * $scale)
+    $backDrawerPath = New-RoundedRectanglePath $backDrawer (14 * $scale)
+    $frontDrawerPath = New-RoundedRectanglePath $frontDrawer (14 * $scale)
+    $handlePath = New-RoundedRectanglePath $handleBounds (3 * $scale)
     $graphics.FillPath($black, $bodyPath)
-    $graphics.FillPath($white, $drawerPath)
+    $graphics.DrawPath($backOutline, $backDrawerPath)
+    $graphics.FillPath($white, $frontDrawerPath)
     $graphics.FillPath($black, $handlePath)
 
     $bodyPath.Dispose()
-    $drawerPath.Dispose()
+    $backDrawerPath.Dispose()
+    $frontDrawerPath.Dispose()
     $handlePath.Dispose()
     $black.Dispose()
     $white.Dispose()
+    $backOutline.Dispose()
     $graphics.Dispose()
     return $bitmap
 }

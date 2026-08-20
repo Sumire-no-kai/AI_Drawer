@@ -13,9 +13,11 @@ internal sealed class ProviderWorkspace : IDisposable
     private bool _disposed;
 
     internal ProviderWorkspace(
+        string workspaceId,
         ProviderDefinition provider,
         Func<PermissionRequest, Task<PermissionDecision>> requestPermissionAsync)
     {
+        WorkspaceId = workspaceId;
         Provider = provider;
         _requestPermissionAsync = requestPermissionAsync;
         _host.Visibility = Visibility.Collapsed;
@@ -24,6 +26,8 @@ internal sealed class ProviderWorkspace : IDisposable
     internal event EventHandler<WorkspaceStateChangedEventArgs>? StateChanged;
 
     internal ProviderDefinition Provider { get; }
+
+    internal string WorkspaceId { get; }
 
     internal UIElement View => _host;
 
@@ -321,7 +325,7 @@ internal sealed class ProviderWorkspace : IDisposable
     private bool IsCurrent(CoreWebView2 core) => ReferenceEquals(_webView?.CoreWebView2, core);
 
     private void RaiseState(string title, string message, InfoBarSeverity severity, bool requiresRecovery = false) =>
-        StateChanged?.Invoke(this, new WorkspaceStateChangedEventArgs(Provider.Id, title, message, severity, requiresRecovery));
+        StateChanged?.Invoke(this, new WorkspaceStateChangedEventArgs(WorkspaceId, title, message, severity, requiresRecovery));
 
     private void CloseWebView()
     {
@@ -354,13 +358,13 @@ internal sealed record PermissionRequest(
 internal sealed record PermissionDecision(bool Allowed, bool Remember);
 
 internal sealed class WorkspaceStateChangedEventArgs(
-    string providerId,
+    string workspaceId,
     string title,
     string message,
     InfoBarSeverity severity,
     bool requiresRecovery = false) : EventArgs
 {
-    internal string ProviderId { get; } = providerId;
+    internal string WorkspaceId { get; } = workspaceId;
     internal string Title { get; } = title;
     internal string Message { get; } = message;
     internal InfoBarSeverity Severity { get; } = severity;
