@@ -2,6 +2,28 @@
 
 This is the durable development record for implementation decisions, verified behavior, limitations, and open work. It is not a release changelog. Planned behavior must not be presented as shipped or provider-compatible behavior.
 
+## 2026-08-20 — M2 multi-provider workspace foundation
+
+### Scope and implementation boundary
+
+- Replaced the single hard-coded Gemini workspace with a data-driven registry containing the eight provider entries that have at least initial M0 observations. Their existing `Experimental` or `Limited` states remain visible; this change does not add any `Verified` provider claim.
+- The native application still does not inspect provider DOM, prompts, responses, credentials, cookies, tokens, or payment information.
+
+### Included behavior
+
+1. **Provider selection.** The compact selector lists the configured providers and displays each current compatibility state. `Ctrl + 1` through `Ctrl + 8` select the entries in selector order.
+2. **Isolated, persistent workspaces.** All WebViews use one AI Drawer-owned user-data root with stable `provider-<id>` profiles. The application does not reuse normal Edge or Chrome data.
+3. **Bounded lifecycle.** A workspace is created only when selected. The visible workspace targets normal memory; a hidden or warm workspace targets low memory. Selecting a third workspace disposes the least recently used WebView while preserving its profile, so the implementation retains at most two live views.
+4. **Native boundaries.** Unknown or non-HTTPS navigation is blocked, unrelated HTTPS links are handed to the system browser without query or fragment values, and known Gemini purchase paths remain blocked. Permission requests are denied unless the user explicitly chooses Allow in a native prompt; remembered decisions require a separate checkbox.
+5. **Reset and recovery.** The overflow menu includes an explicitly confirmed per-workspace website-data reset. It closes the affected view before WebView2 clears that profile's local website data, then recreates only that workspace. Reload and restart continue to preserve the profile.
+
+### Verification and limitations
+
+- `D:\DevTools\dotnet\dotnet.exe build src\AIDrawer.App\AIDrawer.App.csproj --configuration Debug --arch x64 --no-restore` completed with zero warnings and zero errors.
+- A locally registered Debug package opened to the Gemini signed-out page. The provider selector listed all eight entries, selection opened ChatGPT, and `Ctrl + 2` opened ChatGPT after Gemini was made `Ctrl + 1`. No provider login, prompt submission, permission action, reset action, purchase action, or external-link action was performed.
+- Review found and fixed inactive-workspace state updates affecting the selected UI, reset leaving an active workspace without reinitialization, environment-creation failures escaping the recoverable UI path, and concurrent selection/restart/reset operations.
+- Real account flows, popup/OAuth paths, permission dialogs, external-browser handoff, website-data reset, renderer failure, hidden-window behavior, resource measurements, and the two-view limit under an instrumented process check remain focused manual-test work. Existing M1 tester profiles are not migrated into the new multi-profile layout; the prior development profile had already been cleared.
+
 ## 2026-08-20 — M1 Windows shell foundation
 
 ### Scope and implementation boundary

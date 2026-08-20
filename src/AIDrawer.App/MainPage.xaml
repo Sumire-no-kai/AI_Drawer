@@ -8,6 +8,16 @@
     mc:Ignorable="d"
     Loaded="MainPage_Loaded"
     Unloaded="MainPage_Unloaded">
+    <Page.KeyboardAccelerators>
+        <KeyboardAccelerator Key="Number1" Modifiers="Control" Invoked="ProviderShortcut_Invoked" />
+        <KeyboardAccelerator Key="Number2" Modifiers="Control" Invoked="ProviderShortcut_Invoked" />
+        <KeyboardAccelerator Key="Number3" Modifiers="Control" Invoked="ProviderShortcut_Invoked" />
+        <KeyboardAccelerator Key="Number4" Modifiers="Control" Invoked="ProviderShortcut_Invoked" />
+        <KeyboardAccelerator Key="Number5" Modifiers="Control" Invoked="ProviderShortcut_Invoked" />
+        <KeyboardAccelerator Key="Number6" Modifiers="Control" Invoked="ProviderShortcut_Invoked" />
+        <KeyboardAccelerator Key="Number7" Modifiers="Control" Invoked="ProviderShortcut_Invoked" />
+        <KeyboardAccelerator Key="Number8" Modifiers="Control" Invoked="ProviderShortcut_Invoked" />
+    </Page.KeyboardAccelerators>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="56" />
@@ -18,24 +28,27 @@
         <Grid Grid.Row="0" Padding="16,8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="260" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
             <Image Width="24" Height="24" Source="/Assets/Square44x44Logo.targetsize-24_altform-unplated.png" />
-            <Button
+            <ComboBox
+                x:Name="ProviderSelector"
                 Grid.Column="1"
                 Margin="12,0,0,0"
-                Padding="14,7"
-                Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
-                CornerRadius="8"
-                IsEnabled="False">
-                <StackPanel Orientation="Horizontal" Spacing="8">
-                    <TextBlock Text="Gemini" FontWeight="SemiBold" />
-                    <TextBlock Text="Experimental" Opacity="0.58" FontSize="12" VerticalAlignment="Center" />
-                </StackPanel>
-            </Button>
+                DisplayMemberPath="DisplayName"
+                PlaceholderText="Choose a provider"
+                SelectionChanged="ProviderSelector_SelectionChanged" />
+
+            <TextBlock
+                x:Name="CompatibilityStatusText"
+                Grid.Column="2"
+                Margin="12,0,0,0"
+                VerticalAlignment="Center"
+                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                Text="Compatibility status" />
 
             <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4">
                 <Button
@@ -61,6 +74,8 @@
                     <FontIcon Glyph="&#xE710;" />
                     <Button.Flyout>
                         <MenuFlyout>
+                            <MenuFlyoutItem Text="Reset this workspace's website data" Click="ResetWebsiteDataMenuItem_Click" />
+                            <MenuFlyoutSeparator />
                             <MenuFlyoutItem Text="Exit AI Drawer" Click="ExitButton_Click" />
                         </MenuFlyout>
                     </Button.Flyout>
@@ -86,7 +101,7 @@
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
                     Spacing="12">
-                    <TextBlock Text="Gemini needs attention" FontSize="20" FontWeight="SemiBold" />
+                    <TextBlock x:Name="RecoveryTitle" Text="Workspace needs attention" FontSize="20" FontWeight="SemiBold" />
                     <TextBlock
                         x:Name="RecoveryMessage"
                         TextWrapping="Wrap"
