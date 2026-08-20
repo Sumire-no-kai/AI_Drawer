@@ -54,4 +54,7 @@ public sealed partial class MainWindow : Window
 
     private void OpenFromTrayCommand_ExecuteRequested(XamlUICommand sender, ExecuteRequestedEventArgs args) =>
         ShowAndActivate();
+
+    private void ExitFromTrayCommand_ExecuteRequested(XamlUICommand sender, ExecuteRequestedEventArgs args) =>
+        ExitApplication();
 }

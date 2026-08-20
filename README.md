@@ -30,7 +30,7 @@ The provisionally approved interface is deliberately small: one compact workspac
 
 ## Current status
 
-Development is in **Milestone 2: Multi-provider Windows Shell**. The repository contains the M0 manual compatibility harness and an in-progress native WinUI 3 shell with a selector for eight `Experimental` or `Limited` provider entries. There is no public end-user build yet, and M2 is not an MVP acceptance claim.
+Development is in **Milestone 2.1: Workspace and visual alignment**, on top of the M2 multi-provider shell. The current branch opens on a centered blank workspace home, supports multiple same-provider tabs, keeps the native workspace bar visible while provider pages load, and uses the selected Sixfold Pulse identity across the app and transparent Windows icon assets. The notification-area icon supports left-click restore plus right-click Open and Exit actions. There is no public end-user build yet, and M2.1 is not an MVP acceptance claim.
 
 | Provider | Current status | Evidence boundary |
 | --- | --- | --- |

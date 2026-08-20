@@ -1,15 +1,26 @@
+using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
+using System.Numerics;
 using Windows.System;
+using Windows.UI.ViewManagement;
 
 namespace AIDrawer;
 
 public sealed partial class MainPage : Page
 {
+    private readonly Dictionary<string, WorkspaceTabView> _workspaceTabViews = new(StringComparer.Ordinal);
+    private readonly List<WorkspaceTab> _workspaces = [];
+    private readonly UISettings _uiSettings = new();
     private WorkspaceCoordinator? _workspaceCoordinator;
+    private WorkspaceTab? _activeWorkspace;
+    private TaskCompletionSource<PromptDecision>? _promptCompletion;
     private bool _hasLoaded;
-    private bool _isUpdatingSelection;
 
     public MainPage()
     {
@@ -23,9 +34,10 @@ public sealed partial class MainPage : Page
             return;
         }
 
-        StatusBar.Title = "Global shortcut unavailable";
-        StatusBar.Message = $"Win + Shift + A could not be registered (Windows error {errorCode}).";
-        StatusBar.Severity = InfoBarSeverity.Warning;
+        ShowStatus(
+            "Global shortcut unavailable",
+            $"Win + Shift + A could not be registered (Windows error {errorCode}).",
+            InfoBarSeverity.Warning);
     }
 
     internal void DisposeWorkspace()
@@ -34,10 +46,7 @@ public sealed partial class MainPage : Page
         _workspaceCoordinator = null;
     }
 
-    internal void SetWindowVisibility(bool isVisible)
-    {
-        _workspaceCoordinator?.SetWindowVisibility(isVisible);
-    }
+    internal void SetWindowVisibility(bool isVisible) => _workspaceCoordinator?.SetWindowVisibility(isVisible);
 
     private async void MainPage_Loaded(object sender, RoutedEventArgs e)
     {
@@ -49,8 +58,8 @@ public sealed partial class MainPage : Page
         _hasLoaded = true;
         _workspaceCoordinator = new WorkspaceCoordinator(WebViewHost, RequestPermissionAsync);
         _workspaceCoordinator.StateChanged += Workspace_StateChanged;
-        ProviderSelector.ItemsSource = _workspaceCoordinator.Providers;
-        await SelectProviderAsync("gemini");
+        PopulateProviderChooser();
+        await CreateWorkspaceAsync();
     }
 
     private void MainPage_Unloaded(object sender, RoutedEventArgs e)
@@ -64,36 +73,49 @@ public sealed partial class MainPage : Page
 
     private void Workspace_StateChanged(object? sender, WorkspaceStateChangedEventArgs args)
     {
-        if (!string.Equals(_workspaceCoordinator?.ActiveWorkspace?.Provider.Id, args.ProviderId, StringComparison.Ordinal))
+        if (!string.Equals(_activeWorkspace?.Id, args.WorkspaceId, StringComparison.Ordinal))
         {
             return;
         }
 
-        if (args.Severity == InfoBarSeverity.Success)
+        if (args.Activity != WorkspaceActivity.None)
         {
-            StatusBar.IsOpen = false;
+            ShowWorkspaceActivity(args.Activity, args.Title);
+            StatusBanner.Visibility = Visibility.Collapsed;
             RecoveryPanel.Visibility = Visibility.Collapsed;
             return;
         }
 
-        StatusBar.Title = args.Title;
-        StatusBar.Message = args.Message;
-        StatusBar.Severity = args.Severity;
-        StatusBar.IsOpen = true;
+        HideWorkspaceActivity();
+
+        if (args.Severity == InfoBarSeverity.Success)
+        {
+            StatusBanner.Visibility = Visibility.Collapsed;
+            RecoveryPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        ShowStatus(args.Title, args.Message, args.Severity);
 
         RecoveryTitle.Text = args.Title;
         RecoveryMessage.Text = args.Message;
         RecoveryPanel.Visibility = args.RequiresRecovery ? Visibility.Visible : Visibility.Collapsed;
+        if (args.RequiresRecovery)
+        {
+            AnimateIn(RecoveryPanel, 8);
+        }
     }
 
     private void ReloadButton_Click(object sender, RoutedEventArgs e)
     {
+        WorkspaceActionsFlyout.Hide();
         RecoveryPanel.Visibility = Visibility.Collapsed;
         _workspaceCoordinator?.ReloadActiveWorkspace();
     }
 
     private async void RestartButton_Click(object sender, RoutedEventArgs e)
     {
+        WorkspaceActionsFlyout.Hide();
         RecoveryPanel.Visibility = Visibility.Collapsed;
         if (_workspaceCoordinator is not null)
         {
@@ -101,11 +123,59 @@ public sealed partial class MainPage : Page
         }
     }
 
-    private async void ProviderSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private async void NewWorkspaceButton_Click(object sender, RoutedEventArgs e) => await CreateWorkspaceAsync();
+
+    private async void NewWorkspaceShortcut_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        if (!_isUpdatingSelection && ProviderSelector.SelectedItem is ProviderDefinition provider)
+        args.Handled = true;
+        await CreateWorkspaceAsync();
+    }
+
+    private async void WorkspaceTab_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string workspaceId })
         {
-            await SelectProviderAsync(provider.Id);
+            await SelectWorkspaceAsync(workspaceId);
+        }
+    }
+
+    private async void CloseWorkspaceTab_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string workspaceId }
+            || _workspaces.Count == 1
+            || _workspaces.FirstOrDefault(workspace => workspace.Id == workspaceId) is not { } workspace
+            || !_workspaceTabViews.TryGetValue(workspace.Id, out var tabView)
+            || !tabView.Close.IsEnabled)
+        {
+            return;
+        }
+
+        tabView.Close.IsEnabled = false;
+        await AnimateOutAsync(tabView.Container, -4);
+        var wasActive = ReferenceEquals(workspace, _activeWorkspace);
+        if (_workspaceCoordinator is not null)
+        {
+            await _workspaceCoordinator.RemoveWorkspaceAsync(workspace.Id);
+        }
+        _workspaces.Remove(workspace);
+
+        if (_workspaceTabViews.Remove(workspace.Id))
+        {
+            WorkspaceTabs.Children.Remove(tabView.Container);
+        }
+
+        UpdateCloseButtonVisibility();
+        if (wasActive)
+        {
+            await SelectWorkspaceAsync(_workspaces.Last().Id);
+        }
+    }
+
+    private async void ProviderChoice_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is Button { Tag: string providerId })
+        {
+            await OpenProviderInActiveWorkspaceAsync(providerId);
         }
     }
 
@@ -124,84 +194,598 @@ public sealed partial class MainPage : Page
             _ => -1
         };
 
-        if (_workspaceCoordinator is not null && providerIndex >= 0 && providerIndex < _workspaceCoordinator.Providers.Count)
+        if (_workspaceCoordinator is null || providerIndex < 0 || providerIndex >= _workspaceCoordinator.Providers.Count)
         {
-            args.Handled = true;
-            await SelectProviderAsync(_workspaceCoordinator.Providers[providerIndex].Id);
+            return;
         }
+
+        args.Handled = true;
+        var provider = _workspaceCoordinator.Providers[providerIndex];
+        var existingWorkspace = _workspaces.LastOrDefault(workspace => workspace.Provider?.Id == provider.Id);
+        if (existingWorkspace is not null)
+        {
+            await SelectWorkspaceAsync(existingWorkspace.Id);
+            return;
+        }
+
+        if (_activeWorkspace?.IsHome == true)
+        {
+            await OpenProviderInActiveWorkspaceAsync(provider.Id);
+            return;
+        }
+
+        await CreateWorkspaceAsync();
+        await OpenProviderInActiveWorkspaceAsync(provider.Id);
     }
 
     private async void ResetWebsiteDataMenuItem_Click(object sender, RoutedEventArgs e)
     {
+        WorkspaceActionsFlyout.Hide();
         if (_workspaceCoordinator?.ActiveWorkspace is not { } workspace)
         {
             return;
         }
 
-        var confirmation = new ContentDialog
-        {
-            XamlRoot = XamlRoot,
-            Title = $"Reset {workspace.Provider.DisplayName} website data?",
-            Content = "This signs you out of this local AI Drawer workspace and removes its local cookies, cache, site storage, and remembered permissions. Your provider account and provider-hosted conversations are not deleted.",
-            PrimaryButtonText = "Reset website data",
-            CloseButtonText = "Cancel",
-            DefaultButton = ContentDialogButton.Close
-        };
+        var confirmation = await ShowPromptAsync(
+            $"Reset {workspace.Provider.DisplayName} website data?",
+            "This clears the local cookies, cache, site storage, and remembered permissions shared by every AI Drawer workspace using this provider. Those workspaces may need to reload. Your provider account and provider-hosted conversations are not deleted.",
+            "Reset website data",
+            "Cancel");
 
-        if (await confirmation.ShowAsync() != ContentDialogResult.Primary)
+        if (!confirmation.IsPrimary)
         {
             return;
         }
 
         await _workspaceCoordinator.ResetActiveWorkspaceAsync();
-        await SelectProviderAsync(workspace.Provider.Id);
+        if (_activeWorkspace is not null)
+        {
+            await SelectWorkspaceAsync(_activeWorkspace.Id);
+        }
     }
 
-    private async Task SelectProviderAsync(string providerId)
+    private async Task CreateWorkspaceAsync()
+    {
+        var workspace = new WorkspaceTab(GetNextHomeWorkspaceNumber());
+        _workspaces.Add(workspace);
+        AddWorkspaceTab(workspace);
+        UpdateCloseButtonVisibility();
+        await SelectWorkspaceAsync(workspace.Id);
+    }
+
+    private async Task OpenProviderInActiveWorkspaceAsync(string providerId)
+    {
+        if (_workspaceCoordinator is null || _activeWorkspace is null || !_activeWorkspace.IsHome)
+        {
+            return;
+        }
+
+        var provider = _workspaceCoordinator.Providers.Single(candidate => candidate.Id == providerId);
+        var workspaceNumber = GetNextWorkspaceNumber(provider);
+        _activeWorkspace.SelectProvider(provider, workspaceNumber);
+        UpdateWorkspaceTab(_activeWorkspace);
+        await SelectWorkspaceAsync(_activeWorkspace.Id);
+    }
+
+    private async Task SelectWorkspaceAsync(string workspaceId)
+    {
+        if (_workspaceCoordinator is null || _workspaces.FirstOrDefault(workspace => workspace.Id == workspaceId) is not { } workspace)
+        {
+            return;
+        }
+
+        _activeWorkspace = workspace;
+        UpdateWorkspaceTabSelection();
+        HideWorkspaceActivity();
+        RecoveryPanel.Visibility = Visibility.Collapsed;
+
+        if (workspace.IsHome)
+        {
+            _workspaceCoordinator.DeactivateActiveWorkspace();
+            HomePanel.Visibility = Visibility.Visible;
+            WebViewHost.Visibility = Visibility.Collapsed;
+            AnimateIn(HomePanel, 7);
+            CompatibilityStatusText.Visibility = Visibility.Collapsed;
+            WorkspaceActionsButton.IsEnabled = false;
+            StatusBanner.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        HomePanel.Visibility = Visibility.Collapsed;
+        WebViewHost.Visibility = Visibility.Visible;
+        AnimateIn(WebViewHost, 5);
+        var provider = workspace.Provider ?? throw new InvalidOperationException("A non-home workspace must have a provider.");
+        CompatibilityStatusText.Text = provider.CompatibilityStatus;
+        CompatibilityStatusText.Visibility = Visibility.Visible;
+        ReloadActionText.Text = $"Reload {provider.DisplayName}";
+        RestartActionText.Text = $"Restart {provider.DisplayName} workspace";
+        WorkspaceActionsButton.IsEnabled = true;
+        await _workspaceCoordinator.ActivateAsync(workspace.Id, provider);
+    }
+
+    private void PopulateProviderChooser()
     {
         if (_workspaceCoordinator is null)
         {
             return;
         }
 
-        var provider = _workspaceCoordinator.Providers.Single(candidate => candidate.Id == providerId);
-        _isUpdatingSelection = true;
-        ProviderSelector.SelectedItem = provider;
-        _isUpdatingSelection = false;
-        var providerIndex = _workspaceCoordinator.Providers.ToList().IndexOf(provider) + 1;
-        CompatibilityStatusText.Text = $"{provider.CompatibilityStatus} · Ctrl + {providerIndex}";
-        RecoveryPanel.Visibility = Visibility.Collapsed;
-        await _workspaceCoordinator.SelectAsync(providerId);
-    }
-
-    private async Task<PermissionDecision> RequestPermissionAsync(PermissionRequest request)
-    {
-        var rememberDecision = new CheckBox { Content = "Remember this decision for this workspace" };
-        var dialog = new ContentDialog
+        ProviderChooser.Children.Clear();
+        ProviderChooser.ColumnDefinitions.Clear();
+        ProviderChooser.RowDefinitions.Clear();
+        ProviderChooser.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        ProviderChooser.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var rowCount = (_workspaceCoordinator.Providers.Count + 1) / 2;
+        for (var rowIndex = 0; rowIndex < rowCount; rowIndex++)
         {
-            XamlRoot = XamlRoot,
-            Title = $"Allow {request.PermissionKind} for {request.ProviderName}?",
-            Content = new StackPanel
+            ProviderChooser.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        }
+
+        for (var providerIndex = 0; providerIndex < _workspaceCoordinator.Providers.Count; providerIndex++)
+        {
+            var provider = _workspaceCoordinator.Providers[providerIndex];
+            var rowContent = new Grid
             {
-                Spacing = 12,
+                ColumnSpacing = 10,
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition { Width = new GridLength(32) },
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                    new ColumnDefinition { Width = GridLength.Auto }
+                }
+            };
+
+            rowContent.Children.Add(CreateProviderMark(provider));
+
+            var providerText = new StackPanel
+            {
+                VerticalAlignment = VerticalAlignment.Center,
+                Spacing = 0,
                 Children =
                 {
                     new TextBlock
                     {
-                        Text = "The provider requested a privileged browser permission. AI Drawer will not grant it automatically.",
-                        TextWrapping = TextWrapping.Wrap
+                        Text = provider.DisplayName,
+                        FontSize = 14,
+                        TextTrimming = TextTrimming.CharacterEllipsis
                     },
-                    rememberDecision
+                    new TextBlock
+                    {
+                        Text = provider.CompatibilityStatus,
+                        FontSize = 11,
+                        Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"]
+                    }
                 }
-            },
-            PrimaryButtonText = "Allow",
-            CloseButtonText = "Deny",
-            DefaultButton = ContentDialogButton.Close
-        };
+            };
+            Grid.SetColumn(providerText, 1);
+            rowContent.Children.Add(providerText);
 
-        var result = await dialog.ShowAsync();
-        return new PermissionDecision(result == ContentDialogResult.Primary, rememberDecision.IsChecked == true);
+            var shortcut = new TextBlock
+            {
+                Text = $"Ctrl+{providerIndex + 1}",
+                Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = 11,
+                Opacity = 0.72
+            };
+            Grid.SetColumn(shortcut, 2);
+            rowContent.Children.Add(shortcut);
+
+            var row = new Button
+            {
+                Tag = provider.Id,
+                Style = (Style)Resources["ProviderChoiceButtonStyle"],
+                Content = rowContent
+            };
+            AutomationProperties.SetName(row, $"Open {provider.DisplayName} workspace");
+            row.Click += ProviderChoice_Click;
+
+            Grid.SetRow(row, providerIndex / 2);
+            Grid.SetColumn(row, providerIndex % 2);
+            ProviderChooser.Children.Add(row);
+        }
     }
 
-    private void ExitButton_Click(object sender, RoutedEventArgs e) => App.ExitApplication();
+    private static FrameworkElement CreateProviderMark(ProviderDefinition provider)
+    {
+        if (provider.IconAssetUri is not null)
+        {
+            var iconUri = new Uri(provider.IconAssetUri);
+            ImageSource iconSource = provider.IconAssetUri.EndsWith(".svg", StringComparison.OrdinalIgnoreCase)
+                ? new SvgImageSource(iconUri)
+                : new BitmapImage(iconUri);
+
+            if (provider.UsesMonochromeMark)
+            {
+                return new ImageIcon
+                {
+                    Width = 26,
+                    Height = 26,
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Foreground = (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"],
+                    Source = iconSource
+                };
+            }
+
+            return new Image
+            {
+                Width = 26,
+                Height = 26,
+                HorizontalAlignment = HorizontalAlignment.Left,
+                VerticalAlignment = VerticalAlignment.Center,
+                Source = iconSource
+            };
+        }
+
+        return new Border
+        {
+            Width = 28,
+            Height = 28,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Center,
+            Background = (Brush)Application.Current.Resources["ControlFillColorSecondaryBrush"],
+            CornerRadius = new CornerRadius(6),
+            Child = new TextBlock
+            {
+                Text = provider.IconFallback,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontSize = provider.IconFallback.Length > 2 ? 9 : 11,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+            }
+        };
+    }
+
+    private int GetNextWorkspaceNumber(ProviderDefinition provider)
+    {
+        var workspaceNumber = 1;
+        while (_workspaces.Any(workspace =>
+                   workspace.Provider?.Id == provider.Id
+                   && string.Equals(
+                       workspace.DisplayName,
+                       workspaceNumber == 1
+                           ? provider.WorkspaceLabel
+                           : $"{provider.WorkspaceLabel} {workspaceNumber}",
+                       StringComparison.Ordinal)))
+        {
+            workspaceNumber++;
+        }
+
+        return workspaceNumber;
+    }
+
+    private int GetNextHomeWorkspaceNumber()
+    {
+        var workspaceNumber = 1;
+        while (_workspaces.Any(workspace =>
+                   workspace.IsHome
+                   && string.Equals(
+                       workspace.DisplayName,
+                       workspaceNumber == 1 ? "New workspace" : $"New workspace {workspaceNumber}",
+                       StringComparison.Ordinal)))
+        {
+            workspaceNumber++;
+        }
+
+        return workspaceNumber;
+    }
+
+    private void AddWorkspaceTab(WorkspaceTab workspace)
+    {
+        var container = new Grid();
+        var tab = new Button
+        {
+            Tag = workspace.Id,
+            Content = workspace.DisplayName,
+            Style = (Style)Resources["WorkspaceTabButtonStyle"]
+        };
+        tab.Click += WorkspaceTab_Click;
+
+        var close = new Button
+        {
+            Tag = workspace.Id,
+            Style = (Style)Resources["TabCloseButtonStyle"],
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
+            Content = new FontIcon { Glyph = "\uE711", FontSize = 10 }
+        };
+        AutomationProperties.SetName(close, $"Close {workspace.DisplayName}");
+        close.Click += CloseWorkspaceTab_Click;
+
+        container.Children.Add(tab);
+        container.Children.Add(close);
+        WorkspaceTabs.Children.Add(container);
+        _workspaceTabViews.Add(workspace.Id, new WorkspaceTabView(container, tab, close));
+        AnimateIn(container, 4);
+    }
+
+    private void UpdateWorkspaceTab(WorkspaceTab workspace)
+    {
+        if (_workspaceTabViews.TryGetValue(workspace.Id, out var tabView))
+        {
+            tabView.Tab.Content = workspace.DisplayName;
+            AutomationProperties.SetName(tabView.Close, $"Close {workspace.DisplayName}");
+        }
+    }
+
+    private void UpdateWorkspaceTabSelection()
+    {
+        var activeBrush = (Brush)Resources["WorkspaceTabActiveBrush"];
+        foreach (var workspace in _workspaces)
+        {
+            if (!_workspaceTabViews.TryGetValue(workspace.Id, out var tabView))
+            {
+                continue;
+            }
+
+            var isActive = ReferenceEquals(workspace, _activeWorkspace);
+            tabView.Tab.Background = isActive ? activeBrush : null;
+            tabView.Tab.FontWeight = isActive ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
+        }
+    }
+
+    private void UpdateCloseButtonVisibility()
+    {
+        var visibility = _workspaces.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var tabView in _workspaceTabViews.Values)
+        {
+            tabView.Close.Visibility = visibility;
+        }
+    }
+
+    private async Task<PermissionDecision> RequestPermissionAsync(PermissionRequest request)
+    {
+        var result = await ShowPromptAsync(
+            $"Allow {request.PermissionKind} for {request.ProviderName}?",
+            "The provider requested a privileged browser permission. AI Drawer will not grant it automatically.",
+            "Allow",
+            "Deny",
+            showRememberChoice: true);
+
+        return new PermissionDecision(result.IsPrimary, result.RememberDecision);
+    }
+
+    private void ShowStatus(string title, string message, InfoBarSeverity severity)
+    {
+        StatusTitle.Text = title;
+        StatusMessage.Text = message;
+        StatusBanner.Background = (Brush)Resources[severity switch
+        {
+            InfoBarSeverity.Warning => "StatusWarningBrush",
+            InfoBarSeverity.Error => "StatusErrorBrush",
+            _ => "StatusInfoBrush"
+        }];
+        StatusGlyph.Glyph = severity switch
+        {
+            InfoBarSeverity.Warning => "\uE7BA",
+            InfoBarSeverity.Error => "\uEA39",
+            _ => "\uE946"
+        };
+        StatusBanner.Visibility = Visibility.Visible;
+        AnimateIn(StatusBanner, 5);
+    }
+
+    private void ShowWorkspaceActivity(WorkspaceActivity activity, string title)
+    {
+        if (activity == WorkspaceActivity.Opening)
+        {
+            StopNavigationActivityAnimation();
+            WorkspaceLoadingTitle.Text = title;
+            WorkspaceLoadingPanel.Visibility = Visibility.Visible;
+            AnimateIn(WorkspaceLoadingPanel, 5);
+            StartWorkspaceLoadingAnimation();
+            return;
+        }
+
+        WorkspaceLoadingPanel.Visibility = Visibility.Collapsed;
+        StopWorkspaceLoadingAnimation();
+        StartNavigationActivityAnimation();
+    }
+
+    private void HideWorkspaceActivity()
+    {
+        WorkspaceLoadingPanel.Visibility = Visibility.Collapsed;
+        StopWorkspaceLoadingAnimation();
+        StopNavigationActivityAnimation();
+    }
+
+    private void StartWorkspaceLoadingAnimation()
+    {
+        var visual = ElementCompositionPreview.GetElementVisual(WorkspaceLoadingMark);
+        visual.StopAnimation(nameof(Visual.Scale));
+        visual.StopAnimation(nameof(Visual.Opacity));
+        visual.CenterPoint = new Vector3(21, 21, 0);
+
+        if (!_uiSettings.AnimationsEnabled)
+        {
+            visual.Scale = Vector3.One;
+            visual.Opacity = 1;
+            return;
+        }
+
+        var scale = visual.Compositor.CreateVector3KeyFrameAnimation();
+        scale.InsertKeyFrame(0, new Vector3(0.94f, 0.94f, 1));
+        scale.InsertKeyFrame(0.5f, new Vector3(1.08f, 1.08f, 1));
+        scale.InsertKeyFrame(1, new Vector3(0.94f, 0.94f, 1));
+        scale.Duration = TimeSpan.FromMilliseconds(1400);
+        scale.IterationBehavior = AnimationIterationBehavior.Forever;
+
+        var opacity = visual.Compositor.CreateScalarKeyFrameAnimation();
+        opacity.InsertKeyFrame(0, 0.72f);
+        opacity.InsertKeyFrame(0.5f, 1);
+        opacity.InsertKeyFrame(1, 0.72f);
+        opacity.Duration = scale.Duration;
+        opacity.IterationBehavior = AnimationIterationBehavior.Forever;
+
+        visual.StartAnimation(nameof(Visual.Scale), scale);
+        visual.StartAnimation(nameof(Visual.Opacity), opacity);
+    }
+
+    private void StopWorkspaceLoadingAnimation()
+    {
+        var visual = ElementCompositionPreview.GetElementVisual(WorkspaceLoadingMark);
+        visual.StopAnimation(nameof(Visual.Scale));
+        visual.StopAnimation(nameof(Visual.Opacity));
+        visual.Scale = Vector3.One;
+        visual.Opacity = 1;
+    }
+
+    private void StartNavigationActivityAnimation()
+    {
+        var visual = ElementCompositionPreview.GetElementVisual(NavigationActivityBar);
+        visual.StopAnimation(nameof(Visual.Opacity));
+
+        if (!_uiSettings.AnimationsEnabled)
+        {
+            visual.Opacity = 0.8f;
+            return;
+        }
+
+        var pulse = visual.Compositor.CreateScalarKeyFrameAnimation();
+        pulse.InsertKeyFrame(0, 0.22f);
+        pulse.InsertKeyFrame(0.5f, 0.95f);
+        pulse.InsertKeyFrame(1, 0.22f);
+        pulse.Duration = TimeSpan.FromMilliseconds(900);
+        pulse.IterationBehavior = AnimationIterationBehavior.Forever;
+        visual.StartAnimation(nameof(Visual.Opacity), pulse);
+    }
+
+    private void StopNavigationActivityAnimation()
+    {
+        var visual = ElementCompositionPreview.GetElementVisual(NavigationActivityBar);
+        visual.StopAnimation(nameof(Visual.Opacity));
+        visual.Opacity = 0;
+        NavigationActivityBar.Opacity = 0;
+    }
+
+    private Task<PromptDecision> ShowPromptAsync(
+        string title,
+        string message,
+        string primaryButtonText,
+        string secondaryButtonText,
+        bool showRememberChoice = false)
+    {
+        if (_promptCompletion is not null)
+        {
+            return Task.FromResult(new PromptDecision(false, false));
+        }
+
+        PromptTitle.Text = title;
+        PromptMessage.Text = message;
+        PromptPrimaryButton.Content = primaryButtonText;
+        PromptSecondaryButton.Content = secondaryButtonText;
+        PromptRememberCheckBox.IsChecked = false;
+        PromptRememberCheckBox.Visibility = showRememberChoice ? Visibility.Visible : Visibility.Collapsed;
+        PromptOverlay.Visibility = Visibility.Visible;
+        AnimateIn(PromptCard, 10);
+        PromptSecondaryButton.Focus(FocusState.Programmatic);
+
+        _promptCompletion = new TaskCompletionSource<PromptDecision>();
+        return _promptCompletion.Task;
+    }
+
+    private void PromptPrimaryButton_Click(object sender, RoutedEventArgs e) => CompletePrompt(true);
+
+    private void PromptSecondaryButton_Click(object sender, RoutedEventArgs e) => CompletePrompt(false);
+
+    private void PromptCancelShortcut_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (_promptCompletion is null)
+        {
+            return;
+        }
+
+        args.Handled = true;
+        CompletePrompt(false);
+    }
+
+    private void CompletePrompt(bool isPrimary)
+    {
+        var completion = _promptCompletion;
+        if (completion is null)
+        {
+            return;
+        }
+
+        var rememberDecision = PromptRememberCheckBox.Visibility == Visibility.Visible
+            && PromptRememberCheckBox.IsChecked == true;
+        _promptCompletion = null;
+        PromptOverlay.Visibility = Visibility.Collapsed;
+        completion.TrySetResult(new PromptDecision(isPrimary, rememberDecision));
+    }
+
+    private void AnimateIn(UIElement element, float verticalOffset)
+    {
+        if (!_uiSettings.AnimationsEnabled)
+        {
+            return;
+        }
+
+        var visual = ElementCompositionPreview.GetElementVisual(element);
+        var compositor = visual.Compositor;
+        var easing = compositor.CreateCubicBezierEasingFunction(
+            new Vector2(0.2f, 0),
+            new Vector2(0, 1));
+
+        visual.Opacity = 0;
+        visual.Offset = new Vector3(0, verticalOffset, 0);
+
+        var fade = compositor.CreateScalarKeyFrameAnimation();
+        fade.InsertKeyFrame(1, 1, easing);
+        fade.Duration = TimeSpan.FromMilliseconds(180);
+
+        var move = compositor.CreateVector3KeyFrameAnimation();
+        move.InsertKeyFrame(1, Vector3.Zero, easing);
+        move.Duration = TimeSpan.FromMilliseconds(210);
+
+        visual.StartAnimation(nameof(Visual.Opacity), fade);
+        visual.StartAnimation(nameof(Visual.Offset), move);
+    }
+
+    private Task AnimateOutAsync(UIElement element, float verticalOffset)
+    {
+        if (!_uiSettings.AnimationsEnabled)
+        {
+            return Task.CompletedTask;
+        }
+
+        var visual = ElementCompositionPreview.GetElementVisual(element);
+        var compositor = visual.Compositor;
+        var easing = compositor.CreateCubicBezierEasingFunction(
+            new Vector2(0.4f, 0),
+            new Vector2(1, 1));
+        var completion = new TaskCompletionSource<bool>();
+        var batch = compositor.CreateScopedBatch(CompositionBatchTypes.Animation);
+
+        var fade = compositor.CreateScalarKeyFrameAnimation();
+        fade.InsertKeyFrame(1, 0, easing);
+        fade.Duration = TimeSpan.FromMilliseconds(130);
+
+        var move = compositor.CreateVector3KeyFrameAnimation();
+        move.InsertKeyFrame(1, new Vector3(0, verticalOffset, 0), easing);
+        move.Duration = TimeSpan.FromMilliseconds(150);
+
+        visual.StartAnimation(nameof(Visual.Opacity), fade);
+        visual.StartAnimation(nameof(Visual.Offset), move);
+        batch.End();
+        batch.Completed += (_, _) =>
+        {
+            visual.Opacity = 1;
+            visual.Offset = Vector3.Zero;
+            completion.TrySetResult(true);
+        };
+
+        return completion.Task;
+    }
+
+    private void ExitButton_Click(object sender, RoutedEventArgs e)
+    {
+        WorkspaceActionsFlyout.Hide();
+        App.ExitApplication();
+    }
+
+    private sealed record WorkspaceTabView(Grid Container, Button Tab, Button Close);
+    private sealed record PromptDecision(bool IsPrimary, bool RememberDecision);
 }

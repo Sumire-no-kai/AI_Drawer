@@ -2,6 +2,25 @@
 
 This is the durable development record for implementation decisions, verified behavior, limitations, and open work. It is not a release changelog. Planned behavior must not be presented as shipped or provider-compatible behavior.
 
+## 2026-08-20 — M2.1 workspace-home design alignment
+
+### Included behavior
+
+- Replaced the bordered provider table with a centered workspace home, restrained ambient light, and one floating two-column provider list. Provider compatibility labels remain visible without presenting any provider as verified.
+- Added the selected `Sixfold Pulse` brand mark. The home and packaged Windows assets use the same bright-indigo silhouette on a transparent background.
+- Added short state-driven transitions for workspace creation, workspace close, home/WebView switching, status presentation, recovery, and in-app confirmations. The implementation respects the Windows animation preference.
+- Replaced application-owned `InfoBar`, `ContentDialog`, and menu presentation with a consistent in-app status banner, confirmation layer, and action surface. Operating-system security surfaces and notification-area behavior remain system-owned.
+- Numbered simultaneous blank workspaces, bounded tab width, and removed the row-reorder transition that could temporarily overlap tab labels.
+- Kept the native workspace bar above provider content. Initial provider startup now uses a branded pulse surface, while later provider navigation uses a non-blocking activity line instead of replacing the workspace shell.
+- Added a notification-area right-click menu wired to `Open AI Drawer` and `Exit AI Drawer`. Settings remains omitted until a real settings surface exists.
+
+### Verification and limitations
+
+- `D:\DevTools\dotnet\dotnet.exe build src\AIDrawer.App\AIDrawer.App.csproj -c Debug -p:Platform=x64 --no-restore` completed with zero warnings and zero errors.
+- Generated brand assets were visually inspected at application-icon resolution. The home SVG and package icon share the same selected silhouette.
+- Provider login, prompt submission, permission decisions, data reset, purchase routes, and conversation content were not exercised during this design pass. No provider compatibility state changed.
+- Focused manual checks of the final centered layout, repeated blank-workspace creation/close animation, custom confirmation focus behavior, tray-menu invocation, and light/dark themes remain required. No additional package was registered for this final review.
+
 ## 2026-08-20 — M2 multi-provider workspace foundation
 
 ### Scope and implementation boundary

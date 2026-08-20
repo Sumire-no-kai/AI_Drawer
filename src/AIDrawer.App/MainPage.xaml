@@ -5,10 +5,12 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    KeyboardAcceleratorPlacementMode="Hidden"
     mc:Ignorable="d"
     Loaded="MainPage_Loaded"
     Unloaded="MainPage_Unloaded">
     <Page.KeyboardAccelerators>
+        <KeyboardAccelerator Key="N" Modifiers="Control" Invoked="NewWorkspaceShortcut_Invoked" />
         <KeyboardAccelerator Key="Number1" Modifiers="Control" Invoked="ProviderShortcut_Invoked" />
         <KeyboardAccelerator Key="Number2" Modifiers="Control" Invoked="ProviderShortcut_Invoked" />
         <KeyboardAccelerator Key="Number3" Modifiers="Control" Invoked="ProviderShortcut_Invoked" />
@@ -17,83 +19,288 @@
         <KeyboardAccelerator Key="Number6" Modifiers="Control" Invoked="ProviderShortcut_Invoked" />
         <KeyboardAccelerator Key="Number7" Modifiers="Control" Invoked="ProviderShortcut_Invoked" />
         <KeyboardAccelerator Key="Number8" Modifiers="Control" Invoked="ProviderShortcut_Invoked" />
+        <KeyboardAccelerator Key="Escape" Invoked="PromptCancelShortcut_Invoked" />
     </Page.KeyboardAccelerators>
-    <Grid>
+
+    <Page.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="WorkspaceTabActiveBrush" Color="#105B77FF" />
+                    <SolidColorBrush x:Key="HomeChooserSurfaceBrush" Color="#F7FFFFFF" />
+                    <SolidColorBrush x:Key="PromptSurfaceBrush" Color="#FFFDFDFF" />
+                    <SolidColorBrush x:Key="PromptScrimBrush" Color="#52111727" />
+                    <SolidColorBrush x:Key="StatusInfoBrush" Color="#EDF3FF" />
+                    <SolidColorBrush x:Key="StatusWarningBrush" Color="#FFF3D6" />
+                    <SolidColorBrush x:Key="StatusErrorBrush" Color="#FDEBEC" />
+                    <Color x:Key="HomeGlowColor">#365B7CFF</Color>
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="WorkspaceTabActiveBrush" Color="#245B77FF" />
+                    <SolidColorBrush x:Key="HomeChooserSurfaceBrush" Color="#F21D1E22" />
+                    <SolidColorBrush x:Key="PromptSurfaceBrush" Color="#FF202126" />
+                    <SolidColorBrush x:Key="PromptScrimBrush" Color="#85000000" />
+                    <SolidColorBrush x:Key="StatusInfoBrush" Color="#182B4A" />
+                    <SolidColorBrush x:Key="StatusWarningBrush" Color="#3A2D13" />
+                    <SolidColorBrush x:Key="StatusErrorBrush" Color="#3C1F23" />
+                    <Color x:Key="HomeGlowColor">#4A527FFF</Color>
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
+            <ThemeShadow x:Key="FloatingSurfaceShadow" />
+
+            <Style x:Key="WorkspaceTabButtonStyle" TargetType="Button" BasedOn="{StaticResource AppSecondaryButtonStyle}">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+                <Setter Property="CornerRadius" Value="8" />
+                <Setter Property="MinHeight" Value="36" />
+                <Setter Property="MinWidth" Value="124" />
+                <Setter Property="MaxWidth" Value="200" />
+                <Setter Property="Padding" Value="10,6,30,6" />
+            </Style>
+
+            <Style x:Key="WorkspaceActionButtonStyle" TargetType="Button" BasedOn="{StaticResource WorkspaceTabButtonStyle}">
+                <Setter Property="MinWidth" Value="36" />
+                <Setter Property="Padding" Value="8" />
+            </Style>
+
+            <Style x:Key="TabCloseButtonStyle" TargetType="Button" BasedOn="{StaticResource AppIconButtonStyle}">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+                <Setter Property="Width" Value="24" />
+                <Setter Property="Height" Value="24" />
+                <Setter Property="MinWidth" Value="24" />
+                <Setter Property="MinHeight" Value="24" />
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="CornerRadius" Value="6" />
+            </Style>
+
+            <Style x:Key="ProviderChoiceButtonStyle" TargetType="Button" BasedOn="{StaticResource AppSecondaryButtonStyle}">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="BorderBrush" Value="Transparent" />
+                <Setter Property="CornerRadius" Value="10" />
+                <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                <Setter Property="MinHeight" Value="48" />
+                <Setter Property="Padding" Value="12,6" />
+            </Style>
+
+            <Style x:Key="ActionMenuButtonStyle" TargetType="Button" BasedOn="{StaticResource AppSecondaryButtonStyle}">
+                <Setter Property="Background" Value="Transparent" />
+                <Setter Property="HorizontalAlignment" Value="Stretch" />
+                <Setter Property="HorizontalContentAlignment" Value="Left" />
+                <Setter Property="MinWidth" Value="250" />
+                <Setter Property="Padding" Value="12,9" />
+            </Style>
+        </ResourceDictionary>
+    </Page.Resources>
+
+    <Grid x:Name="RootLayout">
         <Grid.RowDefinitions>
-            <RowDefinition Height="56" />
+            <RowDefinition Height="52" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" Padding="16,8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+        <Grid
+            Grid.Row="0"
+            Canvas.ZIndex="20"
+            Padding="12,7"
+            Background="{ThemeResource SolidBackgroundFillColorBaseBrush}">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="260" />
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <Image Width="24" Height="24" Source="/Assets/Square44x44Logo.targetsize-24_altform-unplated.png" />
-            <ComboBox
-                x:Name="ProviderSelector"
-                Grid.Column="1"
-                Margin="12,0,0,0"
-                DisplayMemberPath="DisplayName"
-                PlaceholderText="Choose a provider"
-                SelectionChanged="ProviderSelector_SelectionChanged" />
+            <ScrollViewer
+                VerticalScrollBarVisibility="Disabled"
+                HorizontalScrollBarVisibility="Hidden"
+                HorizontalScrollMode="Enabled"
+                VerticalContentAlignment="Center">
+                <StackPanel x:Name="WorkspaceTabs" Orientation="Horizontal" Spacing="6" />
+            </ScrollViewer>
 
             <TextBlock
                 x:Name="CompatibilityStatusText"
-                Grid.Column="2"
-                Margin="12,0,0,0"
+                Grid.Column="1"
+                Margin="8,0"
                 VerticalAlignment="Center"
                 Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                Text="Compatibility status" />
+                Visibility="Collapsed" />
 
-            <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4">
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2">
                 <Button
-                    x:Name="ReloadButton"
-                    MinWidth="36"
-                    Padding="8"
-                    ToolTipService.ToolTip="Reload Gemini"
-                    Click="ReloadButton_Click">
-                    <FontIcon Glyph="&#xE72C;" />
-                </Button>
-                <Button
-                    x:Name="RestartButton"
-                    MinWidth="36"
-                    Padding="8"
-                    ToolTipService.ToolTip="Restart Gemini workspace"
-                    Click="RestartButton_Click">
-                    <FontIcon Glyph="&#xE777;" />
-                </Button>
-                <Button
-                    MinWidth="36"
-                    Padding="8"
-                    ToolTipService.ToolTip="More actions">
+                    Style="{StaticResource WorkspaceActionButtonStyle}"
+                    AutomationProperties.Name="New workspace"
+                    Click="NewWorkspaceButton_Click">
                     <FontIcon Glyph="&#xE710;" />
+                </Button>
+                <Button
+                    x:Name="WorkspaceActionsButton"
+                    Style="{StaticResource WorkspaceActionButtonStyle}"
+                    AutomationProperties.Name="Workspace actions"
+                    IsEnabled="False">
+                    <FontIcon Glyph="&#xE712;" />
                     <Button.Flyout>
-                        <MenuFlyout>
-                            <MenuFlyoutItem Text="Reset this workspace's website data" Click="ResetWebsiteDataMenuItem_Click" />
-                            <MenuFlyoutSeparator />
-                            <MenuFlyoutItem Text="Exit AI Drawer" Click="ExitButton_Click" />
-                        </MenuFlyout>
+                        <Flyout x:Name="WorkspaceActionsFlyout" Placement="BottomEdgeAlignedRight">
+                            <Flyout.FlyoutPresenterStyle>
+                                <Style TargetType="FlyoutPresenter">
+                                    <Setter Property="Padding" Value="0" />
+                                    <Setter Property="Background" Value="Transparent" />
+                                    <Setter Property="BorderThickness" Value="0" />
+                                </Style>
+                            </Flyout.FlyoutPresenterStyle>
+                            <Border
+                                Padding="6"
+                                Background="{ThemeResource HomeChooserSurfaceBrush}"
+                                CornerRadius="12"
+                                Shadow="{StaticResource FloatingSurfaceShadow}"
+                                Translation="0,0,18">
+                                <StackPanel Spacing="2">
+                                    <Button Style="{StaticResource ActionMenuButtonStyle}" Click="ReloadButton_Click">
+                                        <StackPanel Orientation="Horizontal" Spacing="10">
+                                            <FontIcon Glyph="&#xE72C;" FontSize="16" />
+                                            <TextBlock x:Name="ReloadActionText" Text="Reload workspace" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Style="{StaticResource ActionMenuButtonStyle}" Click="RestartButton_Click">
+                                        <StackPanel Orientation="Horizontal" Spacing="10">
+                                            <FontIcon Glyph="&#xE777;" FontSize="16" />
+                                            <TextBlock x:Name="RestartActionText" Text="Restart workspace" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Style="{StaticResource ActionMenuButtonStyle}" Click="ResetWebsiteDataMenuItem_Click">
+                                        <StackPanel Orientation="Horizontal" Spacing="10">
+                                            <FontIcon Glyph="&#xE74D;" FontSize="16" />
+                                            <TextBlock Text="Reset website data" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Style="{StaticResource ActionMenuButtonStyle}" Click="ExitButton_Click">
+                                        <StackPanel Orientation="Horizontal" Spacing="10">
+                                            <FontIcon Glyph="&#xE8BB;" FontSize="16" />
+                                            <TextBlock Text="Exit AI Drawer" />
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
+                            </Border>
+                        </Flyout>
                     </Button.Flyout>
                 </Button>
             </StackPanel>
+
+            <Border
+                x:Name="NavigationActivityBar"
+                Grid.ColumnSpan="3"
+                Height="2"
+                Margin="0,0,0,-7"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Bottom"
+                Background="#596BFF"
+                CornerRadius="1"
+                Opacity="0"
+                IsHitTestVisible="False" />
         </Grid>
 
-        <InfoBar
-            x:Name="StatusBar"
+        <Border
+            x:Name="StatusBanner"
             Grid.Row="1"
-            IsOpen="True"
-            IsClosable="False"
-            Severity="Informational"
-            Title="Loading Gemini"
-            Message="Preparing your private AI Drawer workspace." />
+            Canvas.ZIndex="20"
+            Margin="12,4,12,8"
+            Padding="12,10"
+            CornerRadius="11"
+            Visibility="Collapsed">
+            <Grid ColumnSpacing="10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="4" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <Border x:Name="StatusAccent" CornerRadius="2" Background="{ThemeResource AccentFillColorDefaultBrush}" />
+                <FontIcon x:Name="StatusGlyph" Grid.Column="1" FontSize="16" Glyph="&#xE946;" />
+                <StackPanel Grid.Column="2" Spacing="1">
+                    <TextBlock x:Name="StatusTitle" FontWeight="SemiBold" />
+                    <TextBlock x:Name="StatusMessage" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+            </Grid>
+        </Border>
 
         <Grid Grid.Row="2">
-            <Grid x:Name="WebViewHost" />
+            <Grid x:Name="HomePanel">
+                <Ellipse
+                    Width="760"
+                    Height="430"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    IsHitTestVisible="False">
+                    <Ellipse.Fill>
+                        <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.5" RadiusY="0.5">
+                            <GradientStop Offset="0" Color="{ThemeResource HomeGlowColor}" />
+                            <GradientStop Offset="1" Color="#005B7CFF" />
+                        </RadialGradientBrush>
+                    </Ellipse.Fill>
+                </Ellipse>
+                <ScrollViewer
+                    HorizontalContentAlignment="Center"
+                    HorizontalScrollBarVisibility="Disabled"
+                    HorizontalScrollMode="Disabled"
+                    VerticalScrollBarVisibility="Auto">
+                    <StackPanel
+                        MaxWidth="640"
+                        Margin="24,30"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Spacing="9">
+                        <Image
+                            Width="44"
+                            Height="44"
+                            Margin="0,0,0,5"
+                            HorizontalAlignment="Center"
+                            Source="Assets/AIDrawerMark.svg" />
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            Text="Where do you want to work?"
+                            FontSize="30"
+                            FontWeight="SemiBold" />
+                        <TextBlock
+                            MaxWidth="470"
+                            HorizontalAlignment="Center"
+                            Text="Choose an AI platform to open a private workspace. Open the same platform again whenever you need another conversation."
+                            TextAlignment="Center"
+                            TextWrapping="Wrap"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <Border
+                            Margin="0,15,0,0"
+                            Padding="7"
+                            Background="{ThemeResource HomeChooserSurfaceBrush}"
+                            CornerRadius="16"
+                            Shadow="{StaticResource FloatingSurfaceShadow}"
+                            Translation="0,0,20">
+                            <StackPanel Spacing="3">
+                                <Grid Margin="12,8,10,5">
+                                    <TextBlock Text="Open a workspace" FontSize="13" FontWeight="SemiBold" />
+                                    <TextBlock
+                                        HorizontalAlignment="Right"
+                                        Text="Ctrl + 1–8"
+                                        FontSize="11"
+                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                </Grid>
+                                <Grid x:Name="ProviderChooser" ColumnSpacing="3" RowSpacing="2" />
+                            </StackPanel>
+                        </Border>
+                        <TextBlock
+                            Margin="0,8,0,0"
+                            HorizontalAlignment="Center"
+                            FontSize="11"
+                            Text="Official websites · independent shell · conversations stay private"
+                            TextAlignment="Center"
+                            TextWrapping="Wrap"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    </StackPanel>
+                </ScrollViewer>
+            </Grid>
+
+            <Grid x:Name="WebViewHost" Visibility="Collapsed" />
 
             <Grid x:Name="RecoveryPanel" Background="{ThemeResource SolidBackgroundFillColorBaseBrush}" Visibility="Collapsed">
                 <StackPanel
@@ -107,11 +314,91 @@
                         TextWrapping="Wrap"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                     <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button Content="Reload" Click="ReloadButton_Click" />
-                        <Button Content="Restart workspace" Click="RestartButton_Click" />
+                        <Button Style="{StaticResource AppPrimaryButtonStyle}" Content="Reload" Click="ReloadButton_Click" />
+                        <Button Style="{StaticResource AppSecondaryButtonStyle}" Content="Restart workspace" Click="RestartButton_Click" />
                     </StackPanel>
                 </StackPanel>
             </Grid>
+
+            <Grid
+                x:Name="WorkspaceLoadingPanel"
+                Canvas.ZIndex="30"
+                Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                Visibility="Collapsed">
+                <Ellipse
+                    Width="360"
+                    Height="260"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    IsHitTestVisible="False">
+                    <Ellipse.Fill>
+                        <RadialGradientBrush Center="0.5,0.5" GradientOrigin="0.5,0.5" RadiusX="0.5" RadiusY="0.5">
+                            <GradientStop Offset="0" Color="{ThemeResource HomeGlowColor}" />
+                            <GradientStop Offset="1" Color="#005B7CFF" />
+                        </RadialGradientBrush>
+                    </Ellipse.Fill>
+                </Ellipse>
+                <StackPanel
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Spacing="13">
+                    <Image
+                        x:Name="WorkspaceLoadingMark"
+                        Width="42"
+                        Height="42"
+                        HorizontalAlignment="Center"
+                        Source="Assets/AIDrawerMark.svg" />
+                    <TextBlock
+                        x:Name="WorkspaceLoadingTitle"
+                        HorizontalAlignment="Center"
+                        FontSize="18"
+                        FontWeight="SemiBold"
+                        Text="Opening your workspace" />
+                    <TextBlock
+                        HorizontalAlignment="Center"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Text="Your navigation stays available while the provider gets ready." />
+                </StackPanel>
+            </Grid>
+        </Grid>
+
+        <Grid
+            x:Name="PromptOverlay"
+            Grid.RowSpan="3"
+            Canvas.ZIndex="100"
+            Background="{ThemeResource PromptScrimBrush}"
+            Visibility="Collapsed">
+            <Border
+                x:Name="PromptCard"
+                Width="420"
+                MaxWidth="{Binding ActualWidth, ElementName=RootLayout}"
+                Margin="24"
+                Padding="24"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Background="{ThemeResource PromptSurfaceBrush}"
+                CornerRadius="16"
+                Shadow="{StaticResource FloatingSurfaceShadow}"
+                Translation="0,0,28">
+                <StackPanel Spacing="14">
+                    <TextBlock x:Name="PromptTitle" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    <TextBlock
+                        x:Name="PromptMessage"
+                        TextWrapping="Wrap"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <CheckBox x:Name="PromptRememberCheckBox" Content="Remember this decision for this workspace" />
+                    <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
+                        <Button
+                            x:Name="PromptSecondaryButton"
+                            Style="{StaticResource AppSecondaryButtonStyle}"
+                            Click="PromptSecondaryButton_Click" />
+                        <Button
+                            x:Name="PromptPrimaryButton"
+                            Style="{StaticResource AppPrimaryButtonStyle}"
+                            Click="PromptPrimaryButton_Click" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
         </Grid>
     </Grid>
 </Page>
