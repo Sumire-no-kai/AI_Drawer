@@ -1,3 +1,5 @@
+using AIDrawer.Core;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Web.WebView2.Core;
 
@@ -16,37 +18,68 @@ internal sealed class WorkspaceCoordinator : IDisposable
     private readonly CancellationTokenSource _lifetimeCancellation = new();
     private readonly Dictionary<string, ProviderWorkspace> _workspaces = new(StringComparer.Ordinal);
     private readonly Task<CoreWebView2Environment> _environmentTask;
+    private WorkspaceLifecyclePolicy _lifecyclePolicy;
+    private readonly DispatcherTimer _lifecycleTimer = new() { Interval = TimeSpan.FromSeconds(15) };
     private bool _disposed;
     private bool _windowIsVisible = true;
 
     internal WorkspaceCoordinator(
         Panel host,
-        Func<PermissionRequest, Task<PermissionDecision>> requestPermissionAsync)
+        Func<PermissionRequest, Task<PermissionDecision>> requestPermissionAsync,
+        MemoryMode memoryMode)
     {
         _host = host;
+        _lifecyclePolicy = CreateLifecyclePolicy(memoryMode);
         _environmentTask = CreateEnvironmentAsync();
         _requestPermissionAsync = requestPermissionAsync;
+        _lifecycleTimer.Tick += LifecycleTimer_Tick;
+        _lifecycleTimer.Start();
     }
 
     internal event EventHandler<WorkspaceStateChangedEventArgs>? StateChanged;
+
+    internal event EventHandler<RestoreLocatorChangedEventArgs>? RestoreLocatorChanged;
+
+    internal event EventHandler<WorkspaceLifecycleChangedEventArgs>? LifecycleChanged;
+
+    internal event EventHandler<string>? SuccessfulOpen;
 
     internal IReadOnlyList<ProviderDefinition> Providers => ProviderCatalog.AvailableProviders;
 
     internal ProviderWorkspace? ActiveWorkspace { get; private set; }
 
-    internal async Task ActivateAsync(string workspaceId, ProviderDefinition provider)
+    internal async Task ActivateAsync(
+        string workspaceId,
+        ProviderDefinition provider,
+        Uri? restoreLocator,
+        bool keepActive,
+        bool shouldExplainHomeFallback)
     {
         ThrowIfDisposed();
         if (!_workspaces.TryGetValue(workspaceId, out var nextWorkspace))
         {
-            nextWorkspace = new ProviderWorkspace(workspaceId, provider, _requestPermissionAsync);
+            nextWorkspace = new ProviderWorkspace(
+                workspaceId,
+                provider,
+                restoreLocator,
+                keepActive,
+                shouldExplainHomeFallback,
+                _requestPermissionAsync);
             nextWorkspace.StateChanged += Workspace_StateChanged;
+            nextWorkspace.RestoreLocatorChanged += Workspace_RestoreLocatorChanged;
+            nextWorkspace.LifecycleChanged += Workspace_LifecycleChanged;
+            nextWorkspace.SuccessfulOpen += Workspace_SuccessfulOpen;
             _workspaces.Add(workspaceId, nextWorkspace);
             _host.Children.Add(nextWorkspace.View);
         }
         else if (!string.Equals(nextWorkspace.Provider.Id, provider.Id, StringComparison.Ordinal))
         {
             throw new InvalidOperationException("A workspace cannot change providers after it has been opened.");
+        }
+
+        else
+        {
+            nextWorkspace.SetKeepActive(keepActive);
         }
 
         try
@@ -85,7 +118,7 @@ internal sealed class WorkspaceCoordinator : IDisposable
                 return;
             }
 
-            ActiveWorkspace?.Deactivate();
+            ActiveWorkspace?.Deactivate(_lifecyclePolicy.GracePeriod);
             EnsureCapacityFor(nextWorkspace);
             ActiveWorkspace = nextWorkspace;
             await nextWorkspace.ActivateAsync(environment, _windowIsVisible);
@@ -106,8 +139,25 @@ internal sealed class WorkspaceCoordinator : IDisposable
 
     internal void DeactivateActiveWorkspace()
     {
-        ActiveWorkspace?.Deactivate();
+        ActiveWorkspace?.Deactivate(_lifecyclePolicy.GracePeriod);
         ActiveWorkspace = null;
+    }
+
+    internal void SetActiveWorkspaceKeepActive(bool keepActive) =>
+        ActiveWorkspace?.SetKeepActive(keepActive);
+
+    internal void SetMemoryMode(MemoryMode memoryMode)
+    {
+        _lifecyclePolicy = CreateLifecyclePolicy(memoryMode);
+        LifecycleTimer_Tick(this, EventArgs.Empty);
+    }
+
+    internal void ClearAllRestoreLocators()
+    {
+        foreach (var workspace in _workspaces.Values)
+        {
+            workspace.ClearRestoreLocator();
+        }
     }
 
     internal async Task RemoveWorkspaceAsync(string workspaceId)
@@ -193,6 +243,17 @@ internal sealed class WorkspaceCoordinator : IDisposable
             var environment = await GetEnvironmentAsync(workspace);
             if (environment is not null && !_disposed)
             {
+                var providerId = workspace.Provider.Id;
+                foreach (var affected in _workspaces.Values.Where(candidate =>
+                             string.Equals(candidate.Provider.Id, providerId, StringComparison.Ordinal)))
+                {
+                    affected.ClearRestoreLocator();
+                    if (!ReferenceEquals(affected, workspace))
+                    {
+                        affected.DisposeView();
+                    }
+                }
+
                 await workspace.ResetWebsiteDataAsync(environment);
             }
         }
@@ -210,19 +271,71 @@ internal sealed class WorkspaceCoordinator : IDisposable
         }
 
         var liveWorkspaces = _workspaces.Values.Where(workspace => workspace.IsLive).ToList();
-        while (liveWorkspaces.Count >= 2)
+        if (liveWorkspaces.Count < _lifecyclePolicy.HardLiveLimit)
         {
-            var workspaceToDispose = liveWorkspaces
-                .Where(workspace => !ReferenceEquals(workspace, nextWorkspace))
-                .OrderBy(workspace => workspace.LastActivated)
-                .First();
-            workspaceToDispose.DisposeView();
-            liveWorkspaces.Remove(workspaceToDispose);
+            return;
+        }
+
+        foreach (var workspaceId in _lifecyclePolicy.SelectForDisposal(
+                     CreateLiveStates(liveWorkspaces),
+                     DateTimeOffset.UtcNow,
+                     enforceHardLimit: true))
+        {
+            if (_workspaces.TryGetValue(workspaceId, out var workspace))
+            {
+                workspace.DisposeView();
+            }
         }
     }
 
     private void Workspace_StateChanged(object? sender, WorkspaceStateChangedEventArgs args) =>
         StateChanged?.Invoke(this, args);
+
+    private void Workspace_RestoreLocatorChanged(object? sender, RestoreLocatorChangedEventArgs args) =>
+        RestoreLocatorChanged?.Invoke(this, args);
+
+    private void Workspace_LifecycleChanged(object? sender, WorkspaceLifecycleChangedEventArgs args) =>
+        LifecycleChanged?.Invoke(this, args);
+
+    private void Workspace_SuccessfulOpen(object? sender, string workspaceId) =>
+        SuccessfulOpen?.Invoke(this, workspaceId);
+
+    private void LifecycleTimer_Tick(object? sender, object args)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        var liveWorkspaces = _workspaces.Values.Where(workspace => workspace.IsLive).ToList();
+        foreach (var workspaceId in _lifecyclePolicy.SelectForDisposal(
+                     CreateLiveStates(liveWorkspaces),
+                     DateTimeOffset.UtcNow,
+                     enforceHardLimit: false))
+        {
+            if (_workspaces.TryGetValue(workspaceId, out var workspace))
+            {
+                workspace.DisposeView();
+            }
+        }
+    }
+
+    private IReadOnlyCollection<LiveWorkspaceState> CreateLiveStates(
+        IReadOnlyCollection<ProviderWorkspace> workspaces) => workspaces
+        .Select(workspace => new LiveWorkspaceState(
+            workspace.WorkspaceId,
+            ReferenceEquals(workspace, ActiveWorkspace),
+            workspace.KeepActive,
+            workspace.ProtectedUntil,
+            workspace.LastActivated))
+        .ToArray();
+
+    private static WorkspaceLifecyclePolicy CreateLifecyclePolicy(MemoryMode memoryMode) => memoryMode switch
+    {
+        MemoryMode.LowMemory => new WorkspaceLifecyclePolicy(1, 2, TimeSpan.FromMinutes(1)),
+        MemoryMode.FastSwitching => new WorkspaceLifecyclePolicy(3, 4, TimeSpan.FromMinutes(15)),
+        _ => new WorkspaceLifecyclePolicy(2, 3, TimeSpan.FromMinutes(5))
+    };
 
     private async Task<CoreWebView2Environment?> GetEnvironmentAsync(ProviderWorkspace workspace)
     {
@@ -259,6 +372,7 @@ internal sealed class WorkspaceCoordinator : IDisposable
         }
 
         _disposed = true;
+        _lifecycleTimer.Stop();
         _lifetimeCancellation.Cancel();
         foreach (var workspace in _workspaces.Values)
         {

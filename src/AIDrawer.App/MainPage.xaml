@@ -158,6 +158,13 @@
                                 Shadow="{StaticResource FloatingSurfaceShadow}"
                                 Translation="0,0,18">
                                 <StackPanel Spacing="2">
+                                    <ToggleSwitch
+                                        x:Name="KeepActiveToggle"
+                                        Margin="12,8"
+                                        Header="Keep active"
+                                        OffContent="Normal disposal priority"
+                                        OnContent="Last to dispose"
+                                        Toggled="KeepActiveToggle_Toggled" />
                                     <Button Style="{StaticResource ActionMenuButtonStyle}" Click="ReloadButton_Click">
                                         <StackPanel Orientation="Horizontal" Spacing="10">
                                             <FontIcon Glyph="&#xE72C;" FontSize="16" />
@@ -186,6 +193,12 @@
                             </Border>
                         </Flyout>
                     </Button.Flyout>
+                </Button>
+                <Button
+                    Style="{StaticResource WorkspaceActionButtonStyle}"
+                    AutomationProperties.Name="Settings"
+                    Click="SettingsButton_Click">
+                    <FontIcon Glyph="&#xE713;" />
                 </Button>
             </StackPanel>
 
@@ -286,6 +299,24 @@
                                         Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                 </Grid>
                                 <Grid x:Name="ProviderChooser" ColumnSpacing="3" RowSpacing="2" />
+                            </StackPanel>
+                        </Border>
+                        <Border
+                            x:Name="HomeSupportReminder"
+                            MaxWidth="520"
+                            Margin="0,8,0,0"
+                            Padding="14"
+                            Background="{ThemeResource HomeChooserSurfaceBrush}"
+                            CornerRadius="12"
+                            Visibility="Collapsed">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="Support independent development" FontWeight="SemiBold" />
+                                <TextBlock Text="This shared Buy Me a Coffee page supports Edward Lee's independent projects. Contributions do not activate or unlock AI Drawer, AI provider services, subscriptions, accounts, premium features, or support plans." TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <Button Style="{StaticResource AppPrimaryButtonStyle}" Content="Open Buy Me a Coffee" Click="SupportDevelopmentButton_Click" />
+                                    <Button Style="{StaticResource AppSecondaryButtonStyle}" Content="Not now" Click="SupportNotNowButton_Click" />
+                                    <Button Style="{StaticResource AppSecondaryButtonStyle}" Content="Don't ask again" Click="SupportNeverButton_Click" />
+                                </StackPanel>
                             </StackPanel>
                         </Border>
                         <TextBlock
@@ -391,13 +422,71 @@
                         <Button
                             x:Name="PromptSecondaryButton"
                             Style="{StaticResource AppSecondaryButtonStyle}"
+                            IsHitTestVisible="True"
+                            IsTabStop="True"
                             Click="PromptSecondaryButton_Click" />
                         <Button
                             x:Name="PromptPrimaryButton"
                             Style="{StaticResource AppPrimaryButtonStyle}"
+                            IsHitTestVisible="True"
+                            IsTabStop="True"
                             Click="PromptPrimaryButton_Click" />
                     </StackPanel>
                 </StackPanel>
+            </Border>
+        </Grid>
+
+        <Grid
+            x:Name="SettingsOverlay"
+            Grid.RowSpan="3"
+            Canvas.ZIndex="90"
+            Background="{ThemeResource PromptScrimBrush}"
+            Visibility="Collapsed">
+            <Border
+                Width="520"
+                MaxWidth="{Binding ActualWidth, ElementName=RootLayout}"
+                MaxHeight="{Binding ActualHeight, ElementName=RootLayout}"
+                Margin="24"
+                Padding="24"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Background="{ThemeResource PromptSurfaceBrush}"
+                CornerRadius="16"
+                Shadow="{StaticResource FloatingSurfaceShadow}"
+                Translation="0,0,24">
+                <ScrollViewer>
+                    <StackPanel Spacing="18">
+                        <Grid>
+                            <TextBlock Text="Settings" FontSize="24" FontWeight="SemiBold" />
+                            <Button x:Name="SettingsCloseButton" HorizontalAlignment="Right" Style="{StaticResource AppIconButtonStyle}" AutomationProperties.Name="Close settings" Click="CloseSettingsButton_Click">
+                                <FontIcon Glyph="&#xE711;" />
+                            </Button>
+                        </Grid>
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Workspaces" FontSize="16" FontWeight="SemiBold" />
+                            <ToggleSwitch
+                                x:Name="RestoreExactWorkspaceToggle"
+                                Header="Restore exact workspace after restart"
+                                OnContent="Encrypted restricted locator enabled"
+                                OffContent="Open provider home page"
+                                Toggled="RestoreExactWorkspaceToggle_Toggled" />
+                            <TextBlock Text="Only a reviewed provider origin and opaque conversation path may be saved. No page content, prompts, responses, cookies, credentials, query parameters, or fragments are stored." TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <ComboBox x:Name="MemoryModeComboBox" Header="Memory mode (available after resource validation)" HorizontalAlignment="Stretch" IsEnabled="False" SelectionChanged="MemoryModeComboBox_SelectionChanged">
+                                <ComboBoxItem Content="Low memory" Tag="LowMemory" />
+                                <ComboBoxItem Content="Balanced" Tag="Balanced" />
+                                <ComboBoxItem Content="Fast switching" Tag="FastSwitching" />
+                            </ComboBox>
+                            <TextBlock Text="Balanced is the current provisional policy. Low Memory and Fast Switching remain disabled until their Windows 10/11 pressure budgets are measured." TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="About &amp; Support" FontSize="16" FontWeight="SemiBold" />
+                            <TextBlock Text="AI Drawer is an independent open-source shell. It is not affiliated with or endorsed by the listed AI providers." TextWrapping="Wrap" />
+                            <Button Style="{StaticResource AppSecondaryButtonStyle}" HorizontalAlignment="Left" Content="Show welcome and privacy notes" Click="ShowWelcomeButton_Click" />
+                            <Button x:Name="SupportDevelopmentButton" Style="{StaticResource AppSecondaryButtonStyle}" HorizontalAlignment="Left" Content="Support Edward Lee's independent projects" Click="SupportDevelopmentButton_Click" />
+                            <TextBlock x:Name="SupportLinkStatusText" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
             </Border>
         </Grid>
     </Grid>

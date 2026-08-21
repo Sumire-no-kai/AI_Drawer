@@ -2,6 +2,28 @@
 
 This is the durable development record for implementation decisions, verified behavior, limitations, and open work. It is not a release changelog. Planned behavior must not be presented as shipped or provider-compatible behavior.
 
+## 2026-08-21 — M2.2 workspace persistence and lifecycle implementation
+
+### Included code
+
+- Separated native conversation-workspace identity from disposable live WebViews. Workspace identity, order, provider assignment, selected workspace, Keep active preference, and an optional protected restore locator now have a versioned local session document.
+- Added a provisional Balanced lifecycle: inactive views request low memory and receive a five-minute grace period; steady state targets two live views; temporary overflow is capped at three; opening beyond the hard cap disposes an inactive view without deleting its native tab. Tabs expose recent and reload-required states.
+- Added a provider-specific restore-locator policy. It accepts only the exact HTTPS provider host and an allowlisted opaque conversation path, strips query and fragment values, rejects user-info/custom-port/subdomain/authentication/unknown-path forms, encrypts the locator for the current Windows user, and revalidates it after decryption. ChatGPT `/c/`, Claude `/chat/`, and Gemini `/app/` are provisional rules; all other providers fail closed to provider home.
+- Added versioned first-run onboarding and Settings surfaces for exact restoration, the future memory modes, About & Support, and replaying the welcome/privacy explanation. Low Memory and Fast Switching remain disabled pending measured Windows 10/11 budgets.
+- Added Keep active per workspace, tray access to Settings, provider-wide restore-locator clearing during website-data reset, and an affected-workspace count in the reset confirmation.
+- Added the local-only BMC eligibility state required by the PRD: never before day 7; eligible after day 14 or 20 successful workspace openings; 90-day Not now; permanent Don't ask again. The disclosed destination is Edward Lee's shared independent-project support page, and the UI states that contributions do not activate applications, provider services, subscriptions, accounts, premium features, or support plans.
+- Added a framework-free policy-check project for locator rejection and lifecycle selection, plus `CONTEXT.md` and ADR 0001 describing the domain boundary and accepted privacy decision.
+
+### Verification boundary
+
+- The x64 Debug application build completed with zero warnings and zero errors. The framework-free policy harness completed all six locator rejection and lifecycle-selection checks.
+- The executable was launched directly from the repository's unpackaged Debug output. No AI Drawer package was installed or registered and no Start-menu entry was created. Settings open/close and welcome replay were exercised through the running WinUI application.
+- Both welcome actions, `Continue` and `Skip`, were verified through their actual accessible button bounds. An initial failure was traced to the shared Composition transition overwriting XAML-owned `Visual.Offset`, which rendered the welcome card away from its hit-test layout. The transition now fades without changing layout coordinates; the same unsafe offset animation was removed from other workspace surfaces.
+- Fresh diff review also hardened corrupt-session handling: duplicate workspace IDs are ignored, and an unavailable provider definition preserves the workspace's provider identity and exposes a warning instead of silently converting it to a blank workspace.
+- Compilation, XAML loading, the focused welcome/Settings flow, and policy checks are verified. DPAPI round-trip with a real provider locator, full restart restoration, provider URL behavior, provider-profile reset, BMC link launch and eligibility timing, keyboard/focus/accessibility breadth, Windows 10/11 coverage, and instrumented bounded process counts remain open before M2 can pass.
+- No provider compatibility status changed. The provisional locator path rules are not compatibility claims and must be removed or revised if provider-specific verification fails.
+- The configured Buy Me a Coffee destination is `https://buymeacoffee.com/edward_lee`. The Settings disclosure rendered in the focused smoke run; external link launch, eligibility timing, snooze, and permanent dismissal remain unverified.
+
 ## 2026-08-20 — M2.1 workspace-home design alignment
 
 ### Included behavior

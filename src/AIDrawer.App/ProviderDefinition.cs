@@ -1,3 +1,5 @@
+using AIDrawer.Core;
+
 namespace AIDrawer;
 
 internal sealed record ProviderDefinition(
@@ -10,7 +12,8 @@ internal sealed record ProviderDefinition(
     IReadOnlySet<string> AppDomains,
     IReadOnlySet<string> AuthenticationDomains,
     IReadOnlySet<string> KnownPurchaseHosts,
-    IReadOnlyList<string> KnownPurchasePathFragments)
+    IReadOnlyList<string> KnownPurchasePathFragments,
+    IReadOnlyList<string> RestorePathPrefixes)
 {
     internal string ProfileName => $"provider-{Id}";
 
@@ -23,6 +26,9 @@ internal sealed record ProviderDefinition(
         "glm" => "GLM",
         _ => DisplayName
     };
+
+    internal Uri? CreateRestoreLocator(string? rawUri) =>
+        new RestoreLocatorPolicy(HomeUri.IdnHost, RestorePathPrefixes).Restrict(rawUri);
 
     internal bool IsAllowedEmbeddedUri(string? rawUri)
     {

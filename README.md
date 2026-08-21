@@ -1,7 +1,7 @@
 # AI Drawer
 
 ![Repository version](https://img.shields.io/badge/version-0.0.1--dev-181717?style=flat-square&labelColor=181717)
-![Development status](https://img.shields.io/badge/status-M2.2%20Lifecycle%20Hardening%20Next-181717?style=flat-square&labelColor=181717)
+![Development status](https://img.shields.io/badge/status-M2.2%20Implementation%20Under%20Verification-181717?style=flat-square&labelColor=181717)
 ![Initial platform](https://img.shields.io/badge/platform-Windows%2010%201809%2B%20%7C%2011-181717?style=flat-square&labelColor=181717)
 
 > A lightweight, privacy-respecting Windows workspace for the AI web apps you already use.
@@ -30,9 +30,13 @@ The provisionally approved interface is deliberately small: one compact workspac
 
 ## Current status
 
-The implemented shell is at **Milestone 2.1: Workspace and visual alignment**, on top of the M2 multi-provider foundation. The next implementation stage is **M2.2: Workspace persistence and lifecycle hardening**. The current branch opens on a centered blank workspace home, supports multiple same-provider tabs, keeps the native workspace bar visible while provider pages load, and uses the selected Sixfold Pulse identity across the app and transparent Windows icon assets. The notification-area icon supports left-click restore plus right-click Open and Exit actions.
+The shell now contains the **Milestone 2.2 workspace persistence and lifecycle implementation**, on top of the M2 multi-provider foundation. Native workspace identity, order, provider assignment, Keep active preference, and the selected workspace are persisted independently of live WebViews. The provisional Balanced policy keeps a bounded third live view during a five-minute grace period, then converges to two; a fourth opening forces a recoverable WebView disposal rather than deleting its native workspace.
 
-The current two-live-WebView eviction behavior is not the final lifecycle design: a third live workspace can currently cause the least-recently-used view to be recreated from its provider home. M2.2 must preserve workspace identity, add a protected grace period, make released workspaces explicitly reloadable, and restore them through a reviewed local locator where safe. There is no public end-user build yet, and neither M2.1 nor the provisional M2.2 design is an MVP acceptance or performance claim.
+For reviewed provider URL shapes, the implementation can store one current-user-encrypted restore locator containing only the exact provider HTTPS origin and an allowlisted opaque conversation path. Query parameters, fragments, authentication hosts, subdomains, custom ports, and unknown paths are rejected, and the value is revalidated before use. ChatGPT, Claude, and Gemini currently have provisional path rules; the other provider entries intentionally fall back to provider home until a safe rule is reviewed. The first-run privacy explanation, Settings foundation, disabled-until-measured memory-mode selector, exact-restore control, Keep active control, About & Support surface, local support-reminder policy, and tray Settings entry are also present.
+
+The optional support entry opens Edward Lee's shared [Buy Me a Coffee page](https://buymeacoffee.com/edward_lee) for independent projects. Contributions do not activate or unlock AI Drawer, provider services, subscriptions, accounts, premium features, or support plans.
+
+The M2.2 code now builds with zero warnings and zero errors, its six framework-free locator/lifecycle policy checks pass, and the repository-local unpackaged Debug executable has completed a focused Windows smoke run. Settings open/close and welcome replay were exercised, including working pointer activation of both `Continue` and `Skip`. This is still not M2 acceptance or a performance claim: encrypted-locator restart restoration, provider-profile reset, instrumented live-view pressure, provider URL behavior, accessibility breadth, and the required Windows 10/11 matrix remain open. There is no public end-user build yet.
 
 | Provider | Current status | Evidence boundary |
 | --- | --- | --- |
@@ -80,18 +84,17 @@ macOS may be explored later as a separate native shell using SwiftUI/AppKit and 
 
 The MVP treats one provider entry as one signed-in WebView2 profile. Multiple conversation workspaces for the same provider share that profile's sign-in, cookies, cache, permissions, and provider-managed history. Simultaneous isolated accounts for the same provider are deferred until after the MVP.
 
-The provisional lifecycle combines four states rather than keeping every provider page live:
+The implemented provisional lifecycle combines three states rather than keeping every provider page live:
 
 ```text
 Active normal
     → recently used low-memory
-    → older suspended
     → disposed but natively identifiable and reloadable
 ```
 
 - The active workspace is never automatically released.
 - Recently active and user-protected workspaces receive a grace period.
-- Low-memory views may continue provider scripts and network activity; suspended views trade background activity for lower CPU use.
+- Low-memory views may continue provider scripts and network activity. Suspension remains a future measured option and is not implemented by the current Balanced policy.
 - Disposed workspaces retain only minimal native metadata and, where a provider-specific policy makes it safe, one restricted local restore locator. AI Drawer does not cache prompts, responses, DOM, or conversation content.
 - `Low Memory`, `Balanced`, and `Fast Switching` modes will use measured live, suspended, and restoration budgets rather than one unqualified global number.
 - A released workspace must remain at least as identifiable and recoverable as an inactive Chrome tab; resource savings do not justify silently replacing it with an unrelated new context.
@@ -131,7 +134,7 @@ dotnet restore src/AIDrawer.App/AIDrawer.App.csproj
 dotnet build src/AIDrawer.App/AIDrawer.App.csproj --configuration Debug --arch x64
 ```
 
-The packaged Debug launch profile also requires Windows Developer Mode on the development machine. No installer, signing configuration, or public release artifact is included yet.
+Debug builds default to the repository-local unpackaged profile. In Visual Studio, select **AI Drawer (Unpackaged)**; this runs the project without installing or registering AI Drawer and does not create a Start-menu entry. The separate **AI Drawer (Package — registers app)** profile is only for deliberate MSIX testing and may require Windows Developer Mode. No installer, signing configuration, or public release artifact is included yet.
 
 ## Project documents
 
@@ -142,11 +145,11 @@ Provider compatibility contributions must include reproducible environment detai
 
 ## Roadmap
 
-1. Implement M2.2 workspace identity, grace-period lifecycle, safe restoration, and provider-profile reset scope.
-2. Add the first-run onboarding and MVP settings foundation, including memory modes and About & Support.
-3. Complete the outstanding M0/M2 compatibility, resource, recovery, and Windows 10/11 evidence before making capacity or provider-support claims.
-4. Enter M3 to harden origin validation, external navigation, purchase boundaries, diagnostics, disclosures, and security review.
-5. Package a public beta and publish provider limitations.
+1. Complete the remaining M2.2 restart, encrypted-locator, provider-profile reset, broader accessibility, and multi-workspace lifecycle verification.
+2. Run the deferred live-view pressure comparison before enabling Low Memory or Fast Switching modes or claiming a capacity.
+3. Review safe restore patterns provider by provider; unsupported patterns must continue to fail closed to provider home.
+4. Complete the outstanding M0/M2 compatibility, recovery, and Windows 10/11 evidence, then decide whether the M2 Gate permits entry into M3.
+5. Enter M3 to harden origin validation, external navigation, purchase boundaries, diagnostics, disclosures, and security review.
 
 ## Independence
 

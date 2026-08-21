@@ -10,21 +10,36 @@ internal sealed class ProviderWorkspace : IDisposable
     private readonly Grid _host = new();
     private readonly Func<PermissionRequest, Task<PermissionDecision>> _requestPermissionAsync;
     private WebView2? _webView;
+    private Uri? _restoreLocator;
     private bool _hasCompletedInitialNavigation;
+    private bool _hasCountedCurrentView;
+    private bool _shouldExplainHomeFallback;
     private bool _disposed;
 
     internal ProviderWorkspace(
         string workspaceId,
         ProviderDefinition provider,
+        Uri? restoreLocator,
+        bool keepActive,
+        bool shouldExplainHomeFallback,
         Func<PermissionRequest, Task<PermissionDecision>> requestPermissionAsync)
     {
         WorkspaceId = workspaceId;
         Provider = provider;
+        _restoreLocator = provider.CreateRestoreLocator(restoreLocator?.AbsoluteUri);
+        KeepActive = keepActive;
+        _shouldExplainHomeFallback = shouldExplainHomeFallback && _restoreLocator is null;
         _requestPermissionAsync = requestPermissionAsync;
         _host.Visibility = Visibility.Collapsed;
     }
 
     internal event EventHandler<WorkspaceStateChangedEventArgs>? StateChanged;
+
+    internal event EventHandler<RestoreLocatorChangedEventArgs>? RestoreLocatorChanged;
+
+    internal event EventHandler<WorkspaceLifecycleChangedEventArgs>? LifecycleChanged;
+
+    internal event EventHandler<string>? SuccessfulOpen;
 
     internal ProviderDefinition Provider { get; }
 
@@ -33,6 +48,10 @@ internal sealed class ProviderWorkspace : IDisposable
     internal UIElement View => _host;
 
     internal bool IsLive => _webView?.CoreWebView2 is not null;
+
+    internal bool KeepActive { get; private set; }
+
+    internal DateTimeOffset ProtectedUntil { get; private set; }
 
     internal DateTimeOffset LastActivated { get; private set; }
 
@@ -44,19 +63,24 @@ internal sealed class ProviderWorkspace : IDisposable
 
         if (_webView?.CoreWebView2 is null)
         {
-            await CreateWebViewAsync(environment, navigateToHome: true);
+            await CreateWebViewAsync(environment, _restoreLocator ?? Provider.HomeUri);
         }
 
         SetMemoryTarget(windowIsVisible
             ? CoreWebView2MemoryUsageTargetLevel.Normal
             : CoreWebView2MemoryUsageTargetLevel.Low);
+        RaiseLifecycle(WorkspaceLifecyclePhase.Active);
     }
 
-    internal void Deactivate()
+    internal void Deactivate(TimeSpan gracePeriod)
     {
         _host.Visibility = Visibility.Collapsed;
+        ProtectedUntil = DateTimeOffset.UtcNow.Add(gracePeriod);
         SetMemoryTarget(CoreWebView2MemoryUsageTargetLevel.Low);
+        RaiseLifecycle(WorkspaceLifecyclePhase.Recent);
     }
+
+    internal void SetKeepActive(bool keepActive) => KeepActive = keepActive;
 
     internal void SetWindowVisibility(bool isVisible, bool isActive)
     {
@@ -98,7 +122,7 @@ internal sealed class ProviderWorkspace : IDisposable
 
         try
         {
-            await CreateWebViewAsync(environment, navigateToHome: false);
+            await CreateWebViewAsync(environment, navigationTarget: null);
             var profile = _webView?.CoreWebView2?.Profile
                 ?? throw new InvalidOperationException("The provider profile could not be opened.");
             CloseWebView();
@@ -121,8 +145,21 @@ internal sealed class ProviderWorkspace : IDisposable
 
     internal void DisposeView()
     {
+        _shouldExplainHomeFallback = _restoreLocator is null;
         CloseWebView();
         _host.Visibility = Visibility.Collapsed;
+        RaiseLifecycle(WorkspaceLifecyclePhase.Disposed);
+    }
+
+    internal void ClearRestoreLocator()
+    {
+        if (_restoreLocator is null)
+        {
+            return;
+        }
+
+        _restoreLocator = null;
+        RestoreLocatorChanged?.Invoke(this, new RestoreLocatorChangedEventArgs(WorkspaceId, null));
     }
 
     internal void ReportEnvironmentFailure(Exception exception) => RaiseState(
@@ -131,7 +168,7 @@ internal sealed class ProviderWorkspace : IDisposable
         InfoBarSeverity.Error,
         requiresRecovery: true);
 
-    private async Task CreateWebViewAsync(CoreWebView2Environment environment, bool navigateToHome)
+    private async Task CreateWebViewAsync(CoreWebView2Environment environment, Uri? navigationTarget)
     {
         CloseWebView();
         RaiseState(
@@ -150,9 +187,9 @@ internal sealed class ProviderWorkspace : IDisposable
             await _webView.EnsureCoreWebView2Async(environment, controllerOptions);
             Configure(_webView.CoreWebView2);
 
-            if (navigateToHome)
+            if (navigationTarget is not null)
             {
-                _webView.CoreWebView2.Navigate(Provider.HomeUri.AbsoluteUri);
+                _webView.CoreWebView2.Navigate(navigationTarget.AbsoluteUri);
             }
         }
         catch (Exception exception)
@@ -270,6 +307,23 @@ internal sealed class ProviderWorkspace : IDisposable
             if (args.IsSuccess)
             {
                 _hasCompletedInitialNavigation = true;
+                CaptureRestoreLocator(core.Source);
+                if (!_hasCountedCurrentView)
+                {
+                    _hasCountedCurrentView = true;
+                    SuccessfulOpen?.Invoke(this, WorkspaceId);
+                }
+
+                if (_shouldExplainHomeFallback)
+                {
+                    _shouldExplainHomeFallback = false;
+                    RaiseState(
+                        "Previous page could not be restored",
+                        $"AI Drawer kept this {Provider.DisplayName} workspace, but no reviewed safe locator was available, so it opened the provider home page.",
+                        InfoBarSeverity.Warning);
+                    return;
+                }
+
                 RaiseState(
                     Provider.DisplayName,
                     $"{Provider.CompatibilityStatus}. Provider sign-in and conversations are managed by the provider in this local profile.",
@@ -331,6 +385,27 @@ internal sealed class ProviderWorkspace : IDisposable
 
     private bool IsCurrent(CoreWebView2 core) => ReferenceEquals(_webView?.CoreWebView2, core);
 
+    private void CaptureRestoreLocator(string? rawUri)
+    {
+        if (!Uri.TryCreate(rawUri, UriKind.Absolute, out var currentUri)
+            || !string.Equals(currentUri.IdnHost, Provider.HomeUri.IdnHost, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var restricted = Provider.CreateRestoreLocator(rawUri);
+        if (restricted is null || Equals(restricted, _restoreLocator))
+        {
+            return;
+        }
+
+        _restoreLocator = restricted;
+        RestoreLocatorChanged?.Invoke(this, new RestoreLocatorChangedEventArgs(WorkspaceId, restricted));
+    }
+
+    private void RaiseLifecycle(WorkspaceLifecyclePhase phase) =>
+        LifecycleChanged?.Invoke(this, new WorkspaceLifecycleChangedEventArgs(WorkspaceId, phase));
+
     private void RaiseState(
         string title,
         string message,
@@ -350,6 +425,7 @@ internal sealed class ProviderWorkspace : IDisposable
         _webView?.Close();
         _webView = null;
         _hasCompletedInitialNavigation = false;
+        _hasCountedCurrentView = false;
         _host.Children.Clear();
     }
 
@@ -375,6 +451,17 @@ internal sealed record PermissionRequest(
     CoreWebView2PermissionKind PermissionKind);
 
 internal sealed record PermissionDecision(bool Allowed, bool Remember);
+
+internal sealed record RestoreLocatorChangedEventArgs(string WorkspaceId, Uri? RestoreLocator);
+
+internal sealed record WorkspaceLifecycleChangedEventArgs(string WorkspaceId, WorkspaceLifecyclePhase Phase);
+
+internal enum WorkspaceLifecyclePhase
+{
+    Active,
+    Recent,
+    Disposed
+}
 
 internal enum WorkspaceActivity
 {
