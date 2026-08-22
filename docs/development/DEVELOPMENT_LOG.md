@@ -2,6 +2,20 @@
 
 This is the durable development record for implementation decisions, verified behavior, limitations, and open work. It is not a release changelog. Planned behavior must not be presented as shipped or provider-compatible behavior.
 
+## 2026-08-22 — Windows on ARM64 build and publish path
+
+### Implemented behavior
+
+- Added the production application's `win-arm64` file-system publish profile and wired the application project to select architecture-specific publish profiles, matching the existing Compatibility Lab pattern.
+- The profile is self-contained and preserves the existing non-single-file setting. It creates a repository-local, unsigned development publish directory; it does not register or install the application and does not represent a signed public MSIX release.
+- Documented the required lowercase `win-arm64` runtime identifier. The current .NET SDK translates `--arch ARM64` to invalid `win-ARM64`, so ARM64 build guidance uses `--runtime win-arm64 -p:Platform=ARM64`.
+
+### Verification boundary
+
+- Restored the `win-arm64` runtime assets and built the unpackaged x64-hosted ARM64 Debug target with zero warnings and zero errors.
+- Restored the Release ReadyToRun asset set and produced a self-contained ARM64 Release file-system publish directory under `src\AIDrawer.App\bin\Release\net10.0-windows10.0.26100.0\win-arm64\publish`.
+- No ARM64 executable was launched, no package was registered or installed, and no Windows on ARM device was available. ARM64 runtime behavior, WebView2 availability, tray/hotkey behavior, and MSIX signing/install validation remain open.
+
 ## 2026-08-22 — Recoverable session, popup, failure, and lab cleanup hardening
 
 ### Implemented behavior

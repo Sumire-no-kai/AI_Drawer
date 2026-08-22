@@ -36,7 +36,7 @@ For reviewed provider URL shapes, the implementation can store one current-user-
 
 The optional support entry opens Edward Lee's shared [Buy Me a Coffee page](https://buymeacoffee.com/edward_lee) for independent projects. Contributions do not activate or unlock AI Drawer, provider services, subscriptions, accounts, premium features, or support plans.
 
-After the full code-review pass, the production x64 Debug project and Core-check project pass the `Recommended` .NET analyzer set with warnings treated as errors, the production build has zero warnings and zero errors, and all nine framework-free locator/lifecycle policy checks pass. The earlier repository-local unpackaged smoke run remains evidence for Settings and welcome-button pointer activation. The implementation now preserves recovery-blocked session files until the user retries or creates a local backup, differentiates WebView2 process-failure recovery, uses controlled same-profile provider popups, and clears Compatibility Lab fresh profiles after WebView2 releases them. These new paths have not received a fresh GUI or provider-account run. This is still not M2 acceptance or a performance claim: encrypted-locator restart restoration, provider-profile reset, renderer-specific recovery, popup behavior, fresh-profile cleanup, instrumented live-view pressure, provider URL behavior, accessibility breadth, x86/ARM64 compilation, and the required Windows 10/11 matrix remain open. There is no public end-user build yet.
+After the full code-review pass, the production x64 Debug project and Core-check project pass the `Recommended` .NET analyzer set with warnings treated as errors, the production build has zero warnings and zero errors, and all nine framework-free locator/lifecycle policy checks pass. The production application now also compiles for `win-arm64` and has a self-contained ARM64 file-system publish profile. The earlier repository-local unpackaged smoke run remains evidence for Settings and welcome-button pointer activation. The implementation now preserves recovery-blocked session files until the user retries or creates a local backup, differentiates WebView2 process-failure recovery, uses controlled same-profile provider popups, and clears Compatibility Lab fresh profiles after WebView2 releases them. These new paths have not received a fresh GUI or provider-account run. This is still not M2 acceptance or a performance claim: encrypted-locator restart restoration, provider-profile reset, renderer-specific recovery, popup behavior, fresh-profile cleanup, instrumented live-view pressure, provider URL behavior, accessibility breadth, ARM64 device verification, x86 compilation, and the required Windows 10/11 matrix remain open. There is no public end-user build yet.
 
 | Provider | Current status | Evidence boundary |
 | --- | --- | --- |
@@ -136,6 +136,16 @@ This is contributor-only guidance, not an end-user installation path. On Windows
 dotnet restore src/AIDrawer.App/AIDrawer.App.csproj
 dotnet build src/AIDrawer.App/AIDrawer.App.csproj --configuration Debug --arch x64
 ```
+
+For Windows on ARM, use the lowercase runtime identifier explicitly (the CLI `--arch ARM64` form produces an invalid `win-ARM64` identifier with the current SDK):
+
+```powershell
+dotnet restore src/AIDrawer.App/AIDrawer.App.csproj --runtime win-arm64
+dotnet build src/AIDrawer.App/AIDrawer.App.csproj --configuration Debug --runtime win-arm64 -p:Platform=ARM64
+dotnet publish src/AIDrawer.App/AIDrawer.App.csproj --configuration Release --runtime win-arm64 -p:Platform=ARM64
+```
+
+The ARM64 profile produces a self-contained file-system publish directory under `bin\Release\...\win-arm64\publish`. It is an unsigned development artifact, not an installable public MSIX release; MSIX signing, provenance, and ARM64-device validation remain release gates.
 
 Debug builds default to the repository-local unpackaged profile. In Visual Studio, select **AI Drawer (Unpackaged)**; this runs the project without installing or registering AI Drawer and does not create a Start-menu entry. The separate **AI Drawer (Package — registers app)** profile is only for deliberate MSIX testing and may require Windows Developer Mode. No installer, signing configuration, or public release artifact is included yet.
 
