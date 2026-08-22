@@ -35,6 +35,43 @@ This is the durable development record for implementation decisions, verified be
 - The Compatibility Lab's timestamped `Fresh disposable` data directory is isolated but is not yet automatically deleted after WebView2 releases its processes. Cleanup must validate the resolved generated path before any recursive deletion.
 - `MainPage` remains an oversized composition module with native active state duplicated by `WorkspaceCoordinator`. A future deep `WorkspaceCollection` aggregate may absorb identity, ordering, active transition, naming, restore, and immutable snapshot invariants, but a mechanical partial-class split or a DI/repository layer was rejected as shallow indirection.
 
+#### OPEN decision: preserve failed session loads without silent overwrite
+
+This section records an assessed problem and candidate resolution only. No recovery behavior described below has been implemented or verified.
+
+**Current verified behavior**
+
+- `WorkspaceSessionStore.LoadSessionAsync` currently returns the same empty result when no session exists, the file exceeds the size limit, JSON or schema validation fails, or file access fails temporarily.
+- `UnprotectAsync` separately maps every protected-locator decryption failure to `null`. The remaining workspace metadata still loads, but a later save can replace a potentially recoverable encrypted locator with no locator because invalid ciphertext and a temporary DPAPI failure are not distinguished.
+- A genuinely missing file is a normal first-run condition. The other outcomes are not equivalent: after the empty result is accepted, an ordinary selection or Exit save can replace the previous session file with a valid but empty layout.
+- The browser profile and provider-managed conversation history are not deleted by that overwrite, but native workspace identity, order, names, Keep active state, provider assignment, and usable restore locators can be lost. A newer application version's session can also be unintentionally downgraded by an older build.
+
+**Candidate approaches**
+
+1. **Guarded recovery state — recommended.** Return a typed load result such as `Missing`, `Loaded`, `LoadedWithLocatorFailures`, `Corrupt`, `Oversized`, `UnsupportedSchema`, or `TemporarilyUnavailable`. Allow normal writes only for `Missing` and `Loaded`. Every other result preserves the original file and blocks automatic session writes while a native recovery surface offers `Retry` and an outcome-specific backed-up continuation.
+2. **Partial salvage.** Load valid workspace records while retaining unreadable records and encrypted locator blobs for a later retry. This improves availability but introduces merge, ordering, active-workspace, migration, and repeated-save semantics that are disproportionate for the current schema. It should be considered only if real failure evidence shows that whole-session recovery is too disruptive.
+3. **Automatic quarantine and blank start.** Rename the failed file and immediately continue with an empty layout. This is simpler but makes a material recovery choice without consent and can conceal a temporary lock or downgrade attempt. It is not recommended as the default.
+4. **Keep the current silent fallback.** This has the smallest code change but permits silent native-workspace loss and is rejected for a browser-like recovery product.
+
+**Recommended behavior for evaluation**
+
+- Treat only an actually missing session file as first run. Malformed JSON, size rejection, unsupported schema, DPAPI/unprotect failure, access denial, sharing violation, and other I/O failures must remain distinguishable.
+- On a protected failure, keep the original file untouched and enter a write-blocked recovery state before any workspace-selection or shutdown save can run. Settings persistence remains independent and does not need to be blocked.
+- `Retry` performs another read without modifying either the primary file or any temporary file.
+- For whole-document failures, `Back up and start blank` requires explicit confirmation. For `LoadedWithLocatorFailures`, the narrower action is `Back up and continue without unavailable exact locations`, retaining all valid native workspace metadata. Both actions atomically rename the original to a timestamped backup inside the AI Drawer application-data directory, validate that the source and destination resolve inside that directory, and enable a replacement write only after the rename succeeds. If backup creation fails, the write block remains in place.
+- The recovery surface must explain that provider profiles and provider-hosted conversations are not being deleted, while native workspace metadata may be unavailable until recovery succeeds.
+- The design adds no cloud service, telemetry, account system, DOM access, or storage of prompts and responses.
+
+**Proposed implementation and verification sequence — not approved yet**
+
+1. Introduce the typed load outcome and preserve the underlying failure category without exposing sensitive file contents in UI or diagnostics.
+2. Add one session-write gate owned by the persistence boundary; UI call sites must not individually decide whether overwriting is safe.
+3. Add the recovery surface and explicit backup/start-over or backup-and-sanitize transaction, then connect normal startup only after the outcome is resolved.
+4. Add deterministic checks for missing, valid, malformed, oversized, newer-schema, undecryptable-locator, locked/access-denied, backup-success, backup-failure, retry-success, and shutdown-during-recovery cases.
+5. Run repository-local unpackaged restart verification and confirm that every failure case preserves the original bytes until the user explicitly approves backup and reset.
+
+Before implementation, product review must confirm whether the recommended write-blocking startup is acceptable, whether partial read-only workspace display is worth its extra complexity, and how many local backup generations should be retained.
+
 ## 2026-08-21 — M2.2 workspace persistence and lifecycle implementation
 
 ### Included code
