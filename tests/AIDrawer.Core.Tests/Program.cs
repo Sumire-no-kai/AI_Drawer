@@ -50,7 +50,7 @@ Check("expired least-recent non-kept workspace is disposed first", () =>
     Equal("ordinary", policy.SelectForDisposal(states, now, false).Single());
 });
 
-Check("hard limit can release a protected workspace", () =>
+Check("hard limit can release a grace-protected workspace", () =>
 {
     var now = DateTimeOffset.UtcNow;
     var policy = new WorkspaceLifecyclePolicy();
@@ -63,13 +63,45 @@ Check("hard limit can release a protected workspace", () =>
     Equal("old", policy.SelectForDisposal(states, now, true).Single());
 });
 
+Check("hard limit does not release a workspace with a protected operation", () =>
+{
+    var now = DateTimeOffset.UtcNow;
+    var policy = new WorkspaceLifecyclePolicy();
+    var states = new[]
+    {
+        new LiveWorkspaceState("active", true, false, now, now),
+        new LiveWorkspaceState("opening", false, false, now, now.AddMinutes(-2), true),
+        new LiveWorkspaceState("ordinary", false, false, now, now.AddMinutes(-1))
+    };
+    Equal("ordinary", policy.SelectForDisposal(states, now, true).Single());
+});
+
+Check("hard limit returns no victim when every inactive workspace has a protected operation", () =>
+{
+    var now = DateTimeOffset.UtcNow;
+    var policy = new WorkspaceLifecyclePolicy();
+    var states = new[]
+    {
+        new LiveWorkspaceState("active", true, false, now, now),
+        new LiveWorkspaceState("permission", false, false, now, now.AddMinutes(-2), true),
+        new LiveWorkspaceState("download", false, false, now, now.AddMinutes(-1), true)
+    };
+    Equal(0, policy.SelectForDisposal(states, now, true).Count);
+});
+
+Check("negative grace period is rejected", () =>
+{
+    Throws<ArgumentOutOfRangeException>(() =>
+        _ = new WorkspaceLifecyclePolicy(gracePeriod: TimeSpan.FromSeconds(-1)));
+});
+
 if (failures.Count > 0)
 {
     Console.Error.WriteLine(string.Join(Environment.NewLine, failures));
     return 1;
 }
 
-Console.WriteLine("6 core policy checks passed.");
+Console.WriteLine("9 core policy checks passed.");
 return 0;
 
 void Check(string name, Action test)
@@ -98,4 +130,19 @@ static void Null(object? actual)
     {
         throw new InvalidOperationException($"expected null, got {actual}");
     }
+}
+
+static void Throws<TException>(Action action)
+    where TException : Exception
+{
+    try
+    {
+        action();
+    }
+    catch (TException)
+    {
+        return;
+    }
+
+    throw new InvalidOperationException($"expected {typeof(TException).Name}");
 }

@@ -18,6 +18,7 @@
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
     <WindowsPackageType>None</WindowsPackageType>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <EnableWinAppRunSupport>false</EnableWinAppRunSupport>
   </PropertyGroup>
 
   <ItemGroup>

@@ -23,12 +23,6 @@
                 <ImageIconSource ImageSource="Assets/AppIcon.ico" />
             </TitleBar.IconSource>
         </TitleBar>
-
-        <!--
-            The Frame hosts pages for your application content. Add your UI to
-            MainPage.xaml rather than here so you can use Page features such as
-            navigation events and the Loaded lifecycle.
-        -->
         <Frame x:Name="RootFrame" Grid.Row="1" />
     </Grid>
 </Window>

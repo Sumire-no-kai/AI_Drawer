@@ -123,6 +123,8 @@ public sealed partial class MainPage : Page
     private void ConfigureWebView(CoreWebView2 core, ProviderDefinition provider)
     {
         core.Settings.AreDevToolsEnabled = false;
+        core.Settings.AreHostObjectsAllowed = false;
+        core.Settings.IsWebMessageEnabled = false;
         core.Settings.IsPasswordAutosaveEnabled = false;
         core.Settings.IsGeneralAutofillEnabled = false;
 
@@ -317,7 +319,11 @@ public sealed partial class MainPage : Page
         _webView = null;
         ReloadButton.IsEnabled = false;
         RestartButton.IsEnabled = false;
-        WebViewHost?.Children.Clear();
+        if (WebViewHost is not null)
+        {
+            WebViewHost.Children.Clear();
+            WebViewHost.Children.Add(EmptyStateText);
+        }
     }
 
     private void Log(string message)

@@ -30,13 +30,13 @@ The provisionally approved interface is deliberately small: one compact workspac
 
 ## Current status
 
-The shell now contains the **Milestone 2.2 workspace persistence and lifecycle implementation**, on top of the M2 multi-provider foundation. Native workspace identity, order, provider assignment, Keep active preference, and the selected workspace are persisted independently of live WebViews. The provisional Balanced policy keeps a bounded third live view during a five-minute grace period, then converges to two; a fourth opening forces a recoverable WebView disposal rather than deleting its native workspace.
+The shell now contains the **Milestone 2.2 workspace persistence and lifecycle implementation**, on top of the M2 multi-provider foundation. Native workspace identity, order, provider assignment, Keep active preference, and the selected workspace are persisted independently of live WebViews. The provisional Balanced policy keeps a bounded third live view during a five-minute grace period, then converges to two after the grace period expires and all protected operations finish. A fourth opening releases an eligible inactive WebView without deleting its native workspace; if every possible victim is completing a known navigation, permission request, or download, the new activation is blocked and asks the user to retry instead of breaking that protected operation or exceeding the hard live-view cap.
 
-For reviewed provider URL shapes, the implementation can store one current-user-encrypted restore locator containing only the exact provider HTTPS origin and an allowlisted opaque conversation path. Query parameters, fragments, authentication hosts, subdomains, custom ports, and unknown paths are rejected, and the value is revalidated before use. ChatGPT, Claude, and Gemini currently have provisional path rules; the other provider entries intentionally fall back to provider home until a safe rule is reviewed. The first-run privacy explanation, Settings foundation, disabled-until-measured memory-mode selector, exact-restore control, Keep active control, About & Support surface, local support-reminder policy, and tray Settings entry are also present.
+For reviewed provider URL shapes, the implementation can store one current-user-encrypted restore locator containing only the exact provider HTTPS origin and an allowlisted opaque conversation path. Query parameters, fragments, authentication hosts, subdomains, custom ports, and unknown paths are rejected, and the value is revalidated before storage and use. A separate non-persisted, app-domain-only URL can preserve a safer same-process return target after WebView disposal without weakening the restart privacy boundary. ChatGPT, Claude, and Gemini currently have provisional persisted-path rules; the other provider entries intentionally fall back to provider home after restart until a safe rule is reviewed. The first-run privacy explanation, Settings foundation, disabled-until-measured memory-mode selector, exact-restore control, Keep active control, About & Support surface, local support-reminder policy, and tray Settings entry are also present.
 
 The optional support entry opens Edward Lee's shared [Buy Me a Coffee page](https://buymeacoffee.com/edward_lee) for independent projects. Contributions do not activate or unlock AI Drawer, provider services, subscriptions, accounts, premium features, or support plans.
 
-The M2.2 code now builds with zero warnings and zero errors, its six framework-free locator/lifecycle policy checks pass, and the repository-local unpackaged Debug executable has completed a focused Windows smoke run. Settings open/close and welcome replay were exercised, including working pointer activation of both `Continue` and `Skip`. This is still not M2 acceptance or a performance claim: encrypted-locator restart restoration, provider-profile reset, instrumented live-view pressure, provider URL behavior, accessibility breadth, and the required Windows 10/11 matrix remain open. There is no public end-user build yet.
+After the full code-review pass, the production x64 Debug project and Core-check project pass the `Recommended` .NET analyzer set with warnings treated as errors, the production build has zero warnings and zero errors, and all nine framework-free locator/lifecycle policy checks pass. The earlier repository-local unpackaged smoke run remains evidence for Settings and welcome-button pointer activation, but the new lifecycle, reset, navigation, and persistence changes have not received a fresh GUI or provider-account run. This is still not M2 acceptance or a performance claim: corrupt/unsupported session recovery behavior needs a product decision, and encrypted-locator restart restoration, provider-profile reset, renderer-specific recovery, popup behavior, instrumented live-view pressure, provider URL behavior, accessibility breadth, x86/ARM64 compilation, and the required Windows 10/11 matrix remain open. There is no public end-user build yet.
 
 | Provider | Current status | Evidence boundary |
 | --- | --- | --- |
@@ -93,6 +93,7 @@ Active normal
 ```
 
 - The active workspace is never automatically released.
+- A workspace in a native-known navigation, permission, or download operation is not selected for automatic release; a new activation is blocked with a retry message if the hard cap has no safe victim.
 - Recently active and user-protected workspaces receive a grace period.
 - Low-memory views may continue provider scripts and network activity. Suspension remains a future measured option and is not implemented by the current Balanced policy.
 - Disposed workspaces retain only minimal native metadata and, where a provider-specific policy makes it safe, one restricted local restore locator. AI Drawer does not cache prompts, responses, DOM, or conversation content.
@@ -145,11 +146,11 @@ Provider compatibility contributions must include reproducible environment detai
 
 ## Roadmap
 
-1. Complete the remaining M2.2 restart, encrypted-locator, provider-profile reset, broader accessibility, and multi-workspace lifecycle verification.
-2. Run the deferred live-view pressure comparison before enabling Low Memory or Fast Switching modes or claiming a capacity.
-3. Review safe restore patterns provider by provider; unsupported patterns must continue to fail closed to provider home.
-4. Complete the outstanding M0/M2 compatibility, recovery, and Windows 10/11 evidence, then decide whether the M2 Gate permits entry into M3.
-5. Enter M3 to harden origin validation, external navigation, purchase boundaries, diagnostics, disclosures, and security review.
+1. Decide how corrupt, oversized, temporarily unavailable, or newer-schema session files are preserved and surfaced instead of silently becoming an empty layout.
+2. Complete the remaining M2.2 restart, encrypted-locator, provider-profile reset, renderer-specific recovery, popup, broader accessibility, and multi-workspace lifecycle verification.
+3. Run the deferred live-view pressure comparison before enabling Low Memory or Fast Switching modes or claiming a capacity.
+4. Review safe restore patterns provider by provider; unsupported persisted patterns must continue to fail closed to provider home after restart.
+5. Complete the outstanding M0/M2 compatibility and Windows 10/11 evidence, then decide whether the M2 Gate permits entry into M3.
 
 ## Independence
 

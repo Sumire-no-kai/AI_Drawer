@@ -7,7 +7,8 @@ namespace AIDrawer;
 
 internal sealed class WorkspaceSessionStore
 {
-    private static readonly SemaphoreSlim StorageWriteLock = new(1, 1);
+    private static readonly object StorageWriteQueueGate = new();
+    private static Task StorageWriteTail = Task.CompletedTask;
     private static readonly string AppDataRoot = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "AI Drawer");
@@ -39,7 +40,7 @@ internal sealed class WorkspaceSessionStore
 
             var restored = new List<RestoredWorkspace>();
             var restoredIds = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var workspace in document.Workspaces.Take(100))
+            foreach (var workspace in document.Workspaces.Take(WorkspaceSession.MaximumWorkspaceCount))
             {
                 if (string.IsNullOrWhiteSpace(workspace.Id)
                     || workspace.Id.Length > 64
@@ -69,20 +70,26 @@ internal sealed class WorkspaceSessionStore
         }
     }
 
-    internal async Task SaveSessionAsync(
+    internal Task SaveSessionAsync(
         IReadOnlyList<WorkspaceTab> workspaces,
         string? activeWorkspaceId,
         bool restoreExactWorkspace)
     {
-        var workspaceStates = workspaces.Select(workspace => new SessionWorkspaceState(
-            workspace.Id,
-            workspace.DisplayName,
-            workspace.ProviderId,
-            workspace.KeepActive,
-            workspace.RestoreLocator?.AbsoluteUri)).ToArray();
+        var workspaceStates = workspaces
+            .Take(WorkspaceSession.MaximumWorkspaceCount)
+            .Select(workspace => new SessionWorkspaceState(
+                workspace.Id,
+                workspace.DisplayName,
+                workspace.ProviderId,
+                workspace.KeepActive,
+                workspace.Provider?.CreateRestoreLocator(workspace.RestoreLocator?.AbsoluteUri)?.AbsoluteUri))
+            .ToArray();
+        var persistedActiveWorkspaceId = workspaceStates.Any(workspace =>
+            string.Equals(workspace.Id, activeWorkspaceId, StringComparison.Ordinal))
+            ? activeWorkspaceId
+            : null;
 
-        await StorageWriteLock.WaitAsync();
-        try
+        return EnqueueStorageWriteAsync(async () =>
         {
             Directory.CreateDirectory(AppDataRoot);
             var snapshots = new List<ConversationWorkspaceSnapshot>(workspaceStates.Length);
@@ -101,14 +108,10 @@ internal sealed class WorkspaceSessionStore
 
             var document = new WorkspaceSession(
                 WorkspaceSession.CurrentSchemaVersion,
-                activeWorkspaceId,
+                persistedActiveWorkspaceId,
                 snapshots);
             await WriteAtomicallyAsync(SessionPath, JsonSerializer.Serialize(document, JsonOptions));
-        }
-        finally
-        {
-            StorageWriteLock.Release();
-        }
+        });
     }
 
     internal async Task<AppSettings> LoadSettingsAsync()
@@ -144,18 +147,42 @@ internal sealed class WorkspaceSessionStore
         }
     }
 
-    internal async Task SaveSettingsAsync(AppSettings settings)
-    {
-        await StorageWriteLock.WaitAsync();
-        try
+    internal Task SaveSettingsAsync(AppSettings settings) =>
+        EnqueueStorageWriteAsync(async () =>
         {
             Directory.CreateDirectory(AppDataRoot);
             await WriteAtomicallyAsync(SettingsPath, JsonSerializer.Serialize(settings, JsonOptions));
-        }
-        finally
+        });
+
+    internal static Task FlushWritesAsync()
+    {
+        lock (StorageWriteQueueGate)
         {
-            StorageWriteLock.Release();
+            return StorageWriteTail;
         }
+    }
+
+    private static Task EnqueueStorageWriteAsync(Func<Task> writeAsync)
+    {
+        lock (StorageWriteQueueGate)
+        {
+            StorageWriteTail = WriteAfterAsync(StorageWriteTail, writeAsync);
+            return StorageWriteTail;
+        }
+    }
+
+    private static async Task WriteAfterAsync(Task predecessor, Func<Task> writeAsync)
+    {
+        try
+        {
+            await predecessor;
+        }
+        catch
+        {
+            // A failed write is reported to its own caller and must not stop later snapshots.
+        }
+
+        await writeAsync();
     }
 
     private static async Task<string?> ProtectAsync(string? value)
@@ -165,18 +192,10 @@ internal sealed class WorkspaceSessionStore
             return null;
         }
 
-        try
-        {
-            var provider = new DataProtectionProvider("LOCAL=user");
-            var input = CryptographicBuffer.ConvertStringToBinary(value, BinaryStringEncoding.Utf8);
-            var protectedBuffer = await provider.ProtectAsync(input);
-            return CryptographicBuffer.EncodeToBase64String(protectedBuffer);
-        }
-        catch
-        {
-            // Preserve non-sensitive workspace identity without weakening locator protection.
-            return null;
-        }
+        var provider = new DataProtectionProvider("LOCAL=user");
+        var input = CryptographicBuffer.ConvertStringToBinary(value, BinaryStringEncoding.Utf8);
+        var protectedBuffer = await provider.ProtectAsync(input);
+        return CryptographicBuffer.EncodeToBase64String(protectedBuffer);
     }
 
     private static async Task<string?> UnprotectAsync(string? value)

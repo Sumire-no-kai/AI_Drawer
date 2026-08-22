@@ -76,20 +76,24 @@ public static class Program
     private static void OnActivated(object? sender, AppActivationArguments args) =>
         App.ActivateExistingWindow();
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr CreateEvent(IntPtr eventAttributes, bool manualReset, bool initialState, string? name);
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll")]
     private static extern bool SetEvent(IntPtr eventHandle);
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll")]
     private static extern bool CloseHandle(IntPtr objectHandle);
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("ole32.dll")]
-    private static extern uint CoWaitForMultipleObjects(
+    private static extern int CoWaitForMultipleObjects(
         uint flags,
         uint timeout,
-        ulong handleCount,
+        uint handleCount,
         IntPtr[] handles,
         out uint index);
 }

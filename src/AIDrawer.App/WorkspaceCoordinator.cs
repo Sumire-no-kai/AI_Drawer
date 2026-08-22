@@ -17,7 +17,7 @@ internal sealed class WorkspaceCoordinator : IDisposable
     private readonly SemaphoreSlim _selectionLock = new(1, 1);
     private readonly CancellationTokenSource _lifetimeCancellation = new();
     private readonly Dictionary<string, ProviderWorkspace> _workspaces = new(StringComparer.Ordinal);
-    private readonly Task<CoreWebView2Environment> _environmentTask;
+    private Task<CoreWebView2Environment>? _environmentTask;
     private WorkspaceLifecyclePolicy _lifecyclePolicy;
     private readonly DispatcherTimer _lifecycleTimer = new() { Interval = TimeSpan.FromSeconds(15) };
     private bool _disposed;
@@ -30,7 +30,6 @@ internal sealed class WorkspaceCoordinator : IDisposable
     {
         _host = host;
         _lifecyclePolicy = CreateLifecyclePolicy(memoryMode);
-        _environmentTask = CreateEnvironmentAsync();
         _requestPermissionAsync = requestPermissionAsync;
         _lifecycleTimer.Tick += LifecycleTimer_Tick;
         _lifecycleTimer.Start();
@@ -48,7 +47,19 @@ internal sealed class WorkspaceCoordinator : IDisposable
 
     internal ProviderWorkspace? ActiveWorkspace { get; private set; }
 
-    internal async Task ActivateAsync(
+    internal bool TryPromoteCommittedRestoreLocator(string workspaceId, out Uri? restoreLocator)
+    {
+        if (_workspaces.TryGetValue(workspaceId, out var workspace))
+        {
+            restoreLocator = workspace.PromoteCommittedRestoreLocator();
+            return true;
+        }
+
+        restoreLocator = null;
+        return false;
+    }
+
+    internal async Task<bool> ActivateAsync(
         string workspaceId,
         ProviderDefinition provider,
         Uri? restoreLocator,
@@ -56,32 +67,92 @@ internal sealed class WorkspaceCoordinator : IDisposable
         bool shouldExplainHomeFallback)
     {
         ThrowIfDisposed();
-        if (!_workspaces.TryGetValue(workspaceId, out var nextWorkspace))
+        try
         {
-            nextWorkspace = new ProviderWorkspace(
-                workspaceId,
-                provider,
-                restoreLocator,
-                keepActive,
-                shouldExplainHomeFallback,
-                _requestPermissionAsync);
-            nextWorkspace.StateChanged += Workspace_StateChanged;
-            nextWorkspace.RestoreLocatorChanged += Workspace_RestoreLocatorChanged;
-            nextWorkspace.LifecycleChanged += Workspace_LifecycleChanged;
-            nextWorkspace.SuccessfulOpen += Workspace_SuccessfulOpen;
-            _workspaces.Add(workspaceId, nextWorkspace);
-            _host.Children.Add(nextWorkspace.View);
+            await _selectionLock.WaitAsync(_lifetimeCancellation.Token);
         }
-        else if (!string.Equals(nextWorkspace.Provider.Id, provider.Id, StringComparison.Ordinal))
+        catch (OperationCanceledException)
         {
-            throw new InvalidOperationException("A workspace cannot change providers after it has been opened.");
+            return false;
         }
 
-        else
+        try
         {
-            nextWorkspace.SetKeepActive(keepActive);
+            if (_disposed)
+            {
+                return false;
+            }
+
+            if (!_workspaces.TryGetValue(workspaceId, out var nextWorkspace))
+            {
+                nextWorkspace = new ProviderWorkspace(
+                    workspaceId,
+                    provider,
+                    restoreLocator,
+                    keepActive,
+                    shouldExplainHomeFallback,
+                    _requestPermissionAsync);
+                nextWorkspace.StateChanged += Workspace_StateChanged;
+                nextWorkspace.RestoreLocatorChanged += Workspace_RestoreLocatorChanged;
+                nextWorkspace.LifecycleChanged += Workspace_LifecycleChanged;
+                nextWorkspace.SuccessfulOpen += Workspace_SuccessfulOpen;
+                _workspaces.Add(workspaceId, nextWorkspace);
+                _host.Children.Add(nextWorkspace.View);
+            }
+            else if (!string.Equals(nextWorkspace.Provider.Id, provider.Id, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("A workspace cannot change providers after it has been opened.");
+            }
+            else
+            {
+                nextWorkspace.SetKeepActive(keepActive);
+            }
+
+            if (!ReferenceEquals(ActiveWorkspace, nextWorkspace))
+            {
+                ActiveWorkspace?.Deactivate(_lifecyclePolicy.GracePeriod);
+                ActiveWorkspace = nextWorkspace;
+            }
+
+            if (!EnsureCapacityFor(nextWorkspace))
+            {
+                nextWorkspace.ReportCapacityBlocked();
+                return false;
+            }
+
+            var environment = await GetEnvironmentAsync(nextWorkspace);
+            if (environment is null || _disposed)
+            {
+                return false;
+            }
+
+            return await nextWorkspace.ActivateAsync(environment, _windowIsVisible);
+        }
+        finally
+        {
+            _selectionLock.Release();
+        }
+    }
+
+    internal void SetWindowVisibility(bool isVisible)
+    {
+        _windowIsVisible = isVisible;
+        ActiveWorkspace?.SetWindowVisibility(isVisible);
+    }
+
+    internal bool ReloadActiveWorkspace(string expectedWorkspaceId)
+    {
+        if (ActiveWorkspace is not { IsLive: true } workspace
+            || !string.Equals(workspace.WorkspaceId, expectedWorkspaceId, StringComparison.Ordinal))
+        {
+            return false;
         }
 
+        return workspace.Reload();
+    }
+
+    internal async Task DeactivateActiveWorkspaceAsync()
+    {
         try
         {
             await _selectionLock.WaitAsync(_lifetimeCancellation.Token);
@@ -98,49 +169,13 @@ internal sealed class WorkspaceCoordinator : IDisposable
                 return;
             }
 
-            var environment = await GetEnvironmentAsync(nextWorkspace);
-            if (environment is null || _disposed)
-            {
-                return;
-            }
-
-            if (ReferenceEquals(ActiveWorkspace, nextWorkspace))
-            {
-                if (nextWorkspace.IsLive)
-                {
-                    nextWorkspace.SetWindowVisibility(_windowIsVisible, isActive: true);
-                }
-                else
-                {
-                    await nextWorkspace.ActivateAsync(environment, _windowIsVisible);
-                }
-
-                return;
-            }
-
             ActiveWorkspace?.Deactivate(_lifecyclePolicy.GracePeriod);
-            EnsureCapacityFor(nextWorkspace);
-            ActiveWorkspace = nextWorkspace;
-            await nextWorkspace.ActivateAsync(environment, _windowIsVisible);
+            ActiveWorkspace = null;
         }
         finally
         {
             _selectionLock.Release();
         }
-    }
-
-    internal void SetWindowVisibility(bool isVisible)
-    {
-        _windowIsVisible = isVisible;
-        ActiveWorkspace?.SetWindowVisibility(isVisible, isActive: true);
-    }
-
-    internal void ReloadActiveWorkspace() => ActiveWorkspace?.Reload();
-
-    internal void DeactivateActiveWorkspace()
-    {
-        ActiveWorkspace?.Deactivate(_lifecyclePolicy.GracePeriod);
-        ActiveWorkspace = null;
     }
 
     internal void SetActiveWorkspaceKeepActive(bool keepActive) =>
@@ -152,11 +187,11 @@ internal sealed class WorkspaceCoordinator : IDisposable
         LifecycleTimer_Tick(this, EventArgs.Empty);
     }
 
-    internal void ClearAllRestoreLocators()
+    internal void ClearAllPersistedRestoreLocators()
     {
         foreach (var workspace in _workspaces.Values)
         {
-            workspace.ClearRestoreLocator();
+            workspace.ClearPersistedRestoreLocator();
         }
     }
 
@@ -192,7 +227,7 @@ internal sealed class WorkspaceCoordinator : IDisposable
         }
     }
 
-    internal async Task RestartActiveWorkspaceAsync()
+    internal async Task<bool> RestartActiveWorkspaceAsync(string expectedWorkspaceId)
     {
         try
         {
@@ -200,62 +235,31 @@ internal sealed class WorkspaceCoordinator : IDisposable
         }
         catch (OperationCanceledException)
         {
-            return;
+            return false;
         }
 
         try
         {
-            if (_disposed || ActiveWorkspace is not { } workspace)
+            if (_disposed
+                || ActiveWorkspace is not { } workspace
+                || !string.Equals(workspace.WorkspaceId, expectedWorkspaceId, StringComparison.Ordinal))
             {
-                return;
+                return false;
             }
 
             var environment = await GetEnvironmentAsync(workspace);
             if (environment is not null && !_disposed)
             {
-                await workspace.RestartAsync(environment, _windowIsVisible);
-            }
-        }
-        finally
-        {
-            _selectionLock.Release();
-        }
-    }
-
-    internal async Task ResetActiveWorkspaceAsync()
-    {
-        try
-        {
-            await _selectionLock.WaitAsync(_lifetimeCancellation.Token);
-        }
-        catch (OperationCanceledException)
-        {
-            return;
-        }
-
-        try
-        {
-            if (_disposed || ActiveWorkspace is not { } workspace)
-            {
-                return;
-            }
-
-            var environment = await GetEnvironmentAsync(workspace);
-            if (environment is not null && !_disposed)
-            {
-                var providerId = workspace.Provider.Id;
-                foreach (var affected in _workspaces.Values.Where(candidate =>
-                             string.Equals(candidate.Provider.Id, providerId, StringComparison.Ordinal)))
+                if (!EnsureCapacityFor(workspace))
                 {
-                    affected.ClearRestoreLocator();
-                    if (!ReferenceEquals(affected, workspace))
-                    {
-                        affected.DisposeView();
-                    }
+                    workspace.ReportCapacityBlocked();
+                    return false;
                 }
 
-                await workspace.ResetWebsiteDataAsync(environment);
+                return await workspace.RestartAsync(environment, _windowIsVisible);
             }
+
+            return false;
         }
         finally
         {
@@ -263,17 +267,71 @@ internal sealed class WorkspaceCoordinator : IDisposable
         }
     }
 
-    private void EnsureCapacityFor(ProviderWorkspace nextWorkspace)
+    internal async Task<bool> ResetActiveWorkspaceAsync(string expectedWorkspaceId)
+    {
+        try
+        {
+            await _selectionLock.WaitAsync(_lifetimeCancellation.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return false;
+        }
+
+        try
+        {
+            if (_disposed
+                || ActiveWorkspace is not { } workspace
+                || !string.Equals(workspace.WorkspaceId, expectedWorkspaceId, StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            var environment = await GetEnvironmentAsync(workspace);
+            if (environment is not null && !_disposed)
+            {
+                var affectedWorkspaces = _workspaces.Values.Where(candidate =>
+                        string.Equals(candidate.Provider.Id, workspace.Provider.Id, StringComparison.Ordinal))
+                    .ToArray();
+                foreach (var affected in affectedWorkspaces)
+                {
+                    affected.DisposeView();
+                    affected.ClearNavigationTargets();
+                }
+
+                if (!EnsureCapacityFor(workspace))
+                {
+                    workspace.ReportCapacityBlocked();
+                    return false;
+                }
+
+                if (!await workspace.ResetWebsiteDataAsync(environment))
+                {
+                    return false;
+                }
+
+                return true;
+            }
+
+            return false;
+        }
+        finally
+        {
+            _selectionLock.Release();
+        }
+    }
+
+    private bool EnsureCapacityFor(ProviderWorkspace nextWorkspace)
     {
         if (nextWorkspace.IsLive)
         {
-            return;
+            return true;
         }
 
         var liveWorkspaces = _workspaces.Values.Where(workspace => workspace.IsLive).ToList();
         if (liveWorkspaces.Count < _lifecyclePolicy.HardLiveLimit)
         {
-            return;
+            return true;
         }
 
         foreach (var workspaceId in _lifecyclePolicy.SelectForDisposal(
@@ -286,6 +344,8 @@ internal sealed class WorkspaceCoordinator : IDisposable
                 workspace.DisposeView();
             }
         }
+
+        return _workspaces.Values.Count(workspace => workspace.IsLive) < _lifecyclePolicy.HardLiveLimit;
     }
 
     private void Workspace_StateChanged(object? sender, WorkspaceStateChangedEventArgs args) =>
@@ -327,7 +387,8 @@ internal sealed class WorkspaceCoordinator : IDisposable
             ReferenceEquals(workspace, ActiveWorkspace),
             workspace.KeepActive,
             workspace.ProtectedUntil,
-            workspace.LastActivated))
+            workspace.LastActivated,
+            workspace.IsOperationProtected))
         .ToArray();
 
     private static WorkspaceLifecyclePolicy CreateLifecyclePolicy(MemoryMode memoryMode) => memoryMode switch
@@ -339,12 +400,18 @@ internal sealed class WorkspaceCoordinator : IDisposable
 
     private async Task<CoreWebView2Environment?> GetEnvironmentAsync(ProviderWorkspace workspace)
     {
+        var environmentTask = _environmentTask ??= CreateEnvironmentAsync();
         try
         {
-            return await _environmentTask;
+            return await environmentTask;
         }
         catch (Exception exception)
         {
+            if (ReferenceEquals(_environmentTask, environmentTask))
+            {
+                _environmentTask = null;
+            }
+
             workspace.ReportEnvironmentFailure(exception);
             return null;
         }

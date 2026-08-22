@@ -29,7 +29,12 @@ internal sealed class WorkspaceTab
         ProviderId = provider?.Id ?? providerId;
         KeepActive = keepActive;
         RestoreLocator = restoreLocator;
-        WasRestoredFromSession = wasRestoredFromSession;
+        ShouldExplainHomeFallback = wasRestoredFromSession
+            && ProviderId is not null
+            && restoreLocator is null;
+        LifecyclePhase = wasRestoredFromSession && ProviderId is not null
+            ? WorkspaceLifecyclePhase.Disposed
+            : null;
     }
 
     internal string Id { get; }
@@ -46,7 +51,7 @@ internal sealed class WorkspaceTab
 
     internal WorkspaceLifecyclePhase? LifecyclePhase { get; private set; }
 
-    internal bool WasRestoredFromSession { get; }
+    internal bool ShouldExplainHomeFallback { get; private set; }
 
     internal bool IsHome => ProviderId is null;
 
@@ -64,6 +69,8 @@ internal sealed class WorkspaceTab
     internal void SetKeepActive(bool keepActive) => KeepActive = keepActive;
 
     internal void SetRestoreLocator(Uri? restoreLocator) => RestoreLocator = restoreLocator;
+
+    internal void SuppressHomeFallbackExplanation() => ShouldExplainHomeFallback = false;
 
     internal void SetLifecyclePhase(WorkspaceLifecyclePhase phase) => LifecyclePhase = phase;
 }

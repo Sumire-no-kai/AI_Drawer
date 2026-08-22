@@ -417,7 +417,7 @@
                         x:Name="PromptMessage"
                         TextWrapping="Wrap"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    <CheckBox x:Name="PromptRememberCheckBox" Content="Remember this decision for this workspace" />
+                    <CheckBox x:Name="PromptRememberCheckBox" Content="Remember this decision in this provider profile on this device" />
                     <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
                         <Button
                             x:Name="PromptSecondaryButton"

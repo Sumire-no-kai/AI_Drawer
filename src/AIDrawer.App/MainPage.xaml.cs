@@ -15,7 +15,9 @@ namespace AIDrawer;
 
 public sealed partial class MainPage : Page
 {
+    private static readonly Uri SupportUri = new("https://buymeacoffee.com/edward_lee");
     private readonly Dictionary<string, WorkspaceTabView> _workspaceTabViews = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _closingWorkspaceIds = new(StringComparer.Ordinal);
     private readonly List<WorkspaceTab> _workspaces = [];
     private readonly UISettings _uiSettings = new();
     private readonly WorkspaceSessionStore _sessionStore = new();
@@ -23,7 +25,9 @@ public sealed partial class MainPage : Page
     private WorkspaceTab? _activeWorkspace;
     private AppSettings _settings = new();
     private TaskCompletionSource<PromptDecision>? _promptCompletion;
-    private bool _hasLoaded;
+    private PageLifecycleState _pageState;
+    private long _selectionVersion;
+    private string? _providerResetInProgress;
     private bool _updatingSettingsUi;
 
     public MainPage()
@@ -46,8 +50,48 @@ public sealed partial class MainPage : Page
 
     internal void DisposeWorkspace()
     {
-        _workspaceCoordinator?.Dispose();
+        if (_workspaceCoordinator is not { } coordinator)
+        {
+            return;
+        }
+
+        coordinator.StateChanged -= Workspace_StateChanged;
+        coordinator.RestoreLocatorChanged -= Workspace_RestoreLocatorChanged;
+        coordinator.LifecycleChanged -= Workspace_LifecycleChanged;
+        coordinator.SuccessfulOpen -= Workspace_SuccessfulOpen;
+        coordinator.Dispose();
         _workspaceCoordinator = null;
+    }
+
+    internal async Task PersistAndDisposeWorkspaceAsync()
+    {
+        var shouldPersist = _pageState == PageLifecycleState.Ready;
+        _pageState = PageLifecycleState.ShuttingDown;
+        _selectionVersion++;
+        CompletePrompt(isPrimary: false);
+
+        if (shouldPersist && _settings.RestoreExactWorkspace && _workspaceCoordinator is { } coordinator)
+        {
+            PromoteCommittedRestoreLocators(coordinator);
+        }
+
+        DisposeWorkspace();
+        if (shouldPersist)
+        {
+            await PersistSessionAsync();
+            await PersistSettingsAsync();
+        }
+        else
+        {
+            try
+            {
+                await WorkspaceSessionStore.FlushWritesAsync();
+            }
+            catch
+            {
+                // The initiating load-time save owns its error; Exit only waits for it to finish.
+            }
+        }
     }
 
     internal void SetWindowVisibility(bool isVisible) => _workspaceCoordinator?.SetWindowVisibility(isVisible);
@@ -61,17 +105,26 @@ public sealed partial class MainPage : Page
 
     private async void MainPage_Loaded(object sender, RoutedEventArgs e)
     {
-        if (_hasLoaded)
+        if (_pageState != PageLifecycleState.Unloaded)
         {
             return;
         }
 
-        _hasLoaded = true;
+        _pageState = PageLifecycleState.Loading;
         _settings = await _sessionStore.LoadSettingsAsync();
+        if (_pageState != PageLifecycleState.Loading)
+        {
+            return;
+        }
+
         if (_settings.FirstUsedUtc is null)
         {
             _settings = _settings with { FirstUsedUtc = DateTimeOffset.UtcNow };
             await PersistSettingsAsync();
+            if (_pageState != PageLifecycleState.Loading)
+            {
+                return;
+            }
         }
 
         _workspaceCoordinator = new WorkspaceCoordinator(WebViewHost, RequestPermissionAsync, _settings.MemoryMode);
@@ -81,31 +134,55 @@ public sealed partial class MainPage : Page
         _workspaceCoordinator.SuccessfulOpen += Workspace_SuccessfulOpen;
         PopulateProviderChooser();
         await RestoreSessionAsync();
+        if (_pageState != PageLifecycleState.Loading)
+        {
+            return;
+        }
+
         ConfigureSettingsUi();
 
         if (_settings.OnboardingVersion < 1)
         {
             await ShowWelcomeAsync();
+            if (_pageState != PageLifecycleState.Loading)
+            {
+                return;
+            }
+
             _settings = _settings with { OnboardingVersion = 1 };
             await PersistSettingsAsync();
+            if (_pageState != PageLifecycleState.Loading)
+            {
+                return;
+            }
         }
 
         var targetWorkspaceId = _activeWorkspace?.Id ?? _workspaces.First().Id;
+        _pageState = PageLifecycleState.Ready;
         await SelectWorkspaceAsync(targetWorkspaceId);
     }
 
     private void MainPage_Unloaded(object sender, RoutedEventArgs e)
     {
-        if (_hasLoaded)
+        if (_pageState != PageLifecycleState.Unloaded)
         {
+            _pageState = PageLifecycleState.ShuttingDown;
+            _selectionVersion++;
+            CompletePrompt(isPrimary: false);
             DisposeWorkspace();
-            _hasLoaded = false;
+            _workspaces.Clear();
+            _closingWorkspaceIds.Clear();
+            _workspaceTabViews.Clear();
+            WorkspaceTabs.Children.Clear();
+            _activeWorkspace = null;
+            _pageState = PageLifecycleState.Unloaded;
         }
     }
 
     private void Workspace_StateChanged(object? sender, WorkspaceStateChangedEventArgs args)
     {
-        if (!string.Equals(_activeWorkspace?.Id, args.WorkspaceId, StringComparison.Ordinal))
+        if (_pageState != PageLifecycleState.Ready
+            || !string.Equals(_activeWorkspace?.Id, args.WorkspaceId, StringComparison.Ordinal))
         {
             return;
         }
@@ -140,18 +217,23 @@ public sealed partial class MainPage : Page
 
     private async void Workspace_RestoreLocatorChanged(object? sender, RestoreLocatorChangedEventArgs args)
     {
-        if (_workspaces.FirstOrDefault(workspace => workspace.Id == args.WorkspaceId) is not { } workspace)
+        if (_pageState != PageLifecycleState.Ready
+            || !_settings.RestoreExactWorkspace
+            || _closingWorkspaceIds.Contains(args.WorkspaceId)
+            || _workspaces.FirstOrDefault(workspace => workspace.Id == args.WorkspaceId) is not { } workspace
+            || string.Equals(workspace.ProviderId, _providerResetInProgress, StringComparison.Ordinal))
         {
             return;
         }
 
-        workspace.SetRestoreLocator(_settings.RestoreExactWorkspace ? args.RestoreLocator : null);
+        workspace.SetRestoreLocator(args.RestoreLocator);
         await PersistSessionAsync();
     }
 
     private void Workspace_LifecycleChanged(object? sender, WorkspaceLifecycleChangedEventArgs args)
     {
-        if (_workspaces.FirstOrDefault(workspace => workspace.Id == args.WorkspaceId) is not { } workspace)
+        if (_pageState != PageLifecycleState.Ready
+            || _workspaces.FirstOrDefault(workspace => workspace.Id == args.WorkspaceId) is not { } workspace)
         {
             return;
         }
@@ -162,25 +244,64 @@ public sealed partial class MainPage : Page
 
     private async void Workspace_SuccessfulOpen(object? sender, string workspaceId)
     {
-        _settings = _settings with { SuccessfulOpenCount = _settings.SuccessfulOpenCount + 1 };
+        if (_pageState != PageLifecycleState.Ready)
+        {
+            return;
+        }
+
+        _settings = _settings with
+        {
+            SuccessfulOpenCount = _settings.SuccessfulOpenCount == int.MaxValue
+                ? int.MaxValue
+                : _settings.SuccessfulOpenCount + 1
+        };
         await PersistSettingsAsync();
         UpdateSupportReminderVisibility();
     }
 
-    private void ReloadButton_Click(object sender, RoutedEventArgs e)
+    private async void ReloadButton_Click(object sender, RoutedEventArgs e)
     {
         WorkspaceActionsFlyout.Hide();
         RecoveryPanel.Visibility = Visibility.Collapsed;
-        _workspaceCoordinator?.ReloadActiveWorkspace();
+        if (_pageState != PageLifecycleState.Ready
+            || _providerResetInProgress is not null
+            || _activeWorkspace is not { } workspace
+            || _workspaceCoordinator is not { } coordinator)
+        {
+            return;
+        }
+
+        if (!coordinator.ReloadActiveWorkspace(workspace.Id))
+        {
+            await RestartActiveWorkspaceFromUiAsync(coordinator);
+        }
     }
 
     private async void RestartButton_Click(object sender, RoutedEventArgs e)
     {
         WorkspaceActionsFlyout.Hide();
         RecoveryPanel.Visibility = Visibility.Collapsed;
-        if (_workspaceCoordinator is not null)
+        if (_workspaceCoordinator is { } coordinator)
         {
-            await _workspaceCoordinator.RestartActiveWorkspaceAsync();
+            await RestartActiveWorkspaceFromUiAsync(coordinator);
+        }
+    }
+
+    private async Task RestartActiveWorkspaceFromUiAsync(WorkspaceCoordinator coordinator)
+    {
+        if (_pageState != PageLifecycleState.Ready
+            || _providerResetInProgress is not null
+            || _activeWorkspace is not { } workspace)
+        {
+            return;
+        }
+
+        var selectionVersion = _selectionVersion;
+        WorkspaceActionsButton.IsEnabled = false;
+        var restarted = await coordinator.RestartActiveWorkspaceAsync(workspace.Id);
+        if (IsCurrentSelection(selectionVersion, workspace))
+        {
+            WorkspaceActionsButton.IsEnabled = restarted;
         }
     }
 
@@ -189,6 +310,11 @@ public sealed partial class MainPage : Page
     private async void NewWorkspaceShortcut_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
         args.Handled = true;
+        if (_promptCompletion is not null)
+        {
+            return;
+        }
+
         await CreateWorkspaceAsync();
     }
 
@@ -202,21 +328,38 @@ public sealed partial class MainPage : Page
 
     private async void CloseWorkspaceTab_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { Tag: string workspaceId }
-            || _workspaces.Count == 1
+        if (_pageState != PageLifecycleState.Ready
+            || _providerResetInProgress is not null
+            || sender is not Button { Tag: string workspaceId }
+            || _workspaces.Count - _closingWorkspaceIds.Count <= 1
             || _workspaces.FirstOrDefault(workspace => workspace.Id == workspaceId) is not { } workspace
             || !_workspaceTabViews.TryGetValue(workspace.Id, out var tabView)
-            || !tabView.Close.IsEnabled)
+            || !tabView.Close.IsEnabled
+            || !_closingWorkspaceIds.Add(workspace.Id))
         {
             return;
         }
 
         tabView.Close.IsEnabled = false;
+        tabView.Tab.IsEnabled = false;
+        if (ReferenceEquals(workspace, _activeWorkspace))
+        {
+            _selectionVersion++;
+        }
+
         await AnimateOutAsync(tabView.Container);
-        var wasActive = ReferenceEquals(workspace, _activeWorkspace);
+        if (_pageState != PageLifecycleState.Ready)
+        {
+            return;
+        }
+
         if (_workspaceCoordinator is not null)
         {
             await _workspaceCoordinator.RemoveWorkspaceAsync(workspace.Id);
+            if (_pageState != PageLifecycleState.Ready)
+            {
+                return;
+            }
         }
         _workspaces.Remove(workspace);
 
@@ -225,11 +368,13 @@ public sealed partial class MainPage : Page
             WorkspaceTabs.Children.Remove(tabView.Container);
         }
 
+        _closingWorkspaceIds.Remove(workspace.Id);
         UpdateCloseButtonVisibility();
         await PersistSessionAsync();
-        if (wasActive)
+        if (ReferenceEquals(workspace, _activeWorkspace))
         {
-            await SelectWorkspaceAsync(_workspaces.Last().Id);
+            var fallback = _workspaces.Last(candidate => !_closingWorkspaceIds.Contains(candidate.Id));
+            await SelectWorkspaceAsync(fallback.Id);
         }
     }
 
@@ -243,6 +388,12 @@ public sealed partial class MainPage : Page
 
     private async void ProviderShortcut_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
+        if (_promptCompletion is not null)
+        {
+            args.Handled = true;
+            return;
+        }
+
         var providerIndex = sender.Key switch
         {
             VirtualKey.Number1 => 0,
@@ -276,21 +427,29 @@ public sealed partial class MainPage : Page
             return;
         }
 
-        await CreateWorkspaceAsync();
-        await OpenProviderInActiveWorkspaceAsync(provider.Id);
+        if (await CreateWorkspaceAsync() is { } newWorkspace)
+        {
+            await OpenProviderInWorkspaceAsync(newWorkspace, provider.Id);
+        }
     }
 
     private async void ResetWebsiteDataMenuItem_Click(object sender, RoutedEventArgs e)
     {
         WorkspaceActionsFlyout.Hide();
-        if (_workspaceCoordinator?.ActiveWorkspace is not { } workspace)
+        var coordinator = _workspaceCoordinator;
+        var workspace = coordinator?.ActiveWorkspace;
+        if (_pageState != PageLifecycleState.Ready
+            || _providerResetInProgress is not null
+            || coordinator is null
+            || workspace is null
+            || !string.Equals(_activeWorkspace?.Id, workspace.WorkspaceId, StringComparison.Ordinal))
         {
             return;
         }
 
         var confirmation = await ShowPromptAsync(
             $"Reset {workspace.Provider.DisplayName} website data?",
-            $"This clears the local cookies, cache, site storage, and remembered permissions shared by {_workspaces.Count(candidate => candidate.Provider?.Id == workspace.Provider.Id)} AI Drawer workspace(s) using this provider. Those workspaces may need to reload. Your provider account and provider-hosted conversations are not deleted.",
+            $"This signs out all {_workspaces.Count(candidate => candidate.Provider?.Id == workspace.Provider.Id)} AI Drawer workspace(s) using this provider profile on this device and clears all of its local browsing data, including cookies, cache, site storage, remembered permissions, and browsing or download history. Your provider account and provider-hosted conversations are not deleted.",
             "Reset website data",
             "Cancel");
 
@@ -299,58 +458,172 @@ public sealed partial class MainPage : Page
             return;
         }
 
-        await _workspaceCoordinator.ResetActiveWorkspaceAsync();
-        if (_activeWorkspace is not null)
+        if (_pageState != PageLifecycleState.Ready
+            || _providerResetInProgress is not null
+            || !ReferenceEquals(coordinator.ActiveWorkspace, workspace)
+            || !string.Equals(_activeWorkspace?.Id, workspace.WorkspaceId, StringComparison.Ordinal))
         {
-            await SelectWorkspaceAsync(_activeWorkspace.Id);
+            return;
+        }
+
+        var providerId = workspace.Provider.Id;
+        var affectedWorkspaces = _workspaces.Where(candidate =>
+                string.Equals(candidate.ProviderId, providerId, StringComparison.Ordinal))
+            .ToArray();
+        var previousLocators = affectedWorkspaces.ToDictionary(
+            affectedWorkspace => affectedWorkspace.Id,
+            affectedWorkspace => affectedWorkspace.RestoreLocator,
+            StringComparer.Ordinal);
+        _providerResetInProgress = providerId;
+        WorkspaceActionsButton.IsEnabled = false;
+        RecoveryPanel.Visibility = Visibility.Collapsed;
+        try
+        {
+            foreach (var affectedWorkspace in affectedWorkspaces)
+            {
+                affectedWorkspace.SetRestoreLocator(null);
+                affectedWorkspace.SuppressHomeFallbackExplanation();
+            }
+
+            if (!await PersistSessionAsync())
+            {
+                foreach (var affectedWorkspace in affectedWorkspaces)
+                {
+                    affectedWorkspace.SetRestoreLocator(previousLocators[affectedWorkspace.Id]);
+                }
+
+                return;
+            }
+
+            if (_pageState != PageLifecycleState.Ready
+                || !ReferenceEquals(_workspaceCoordinator, coordinator)
+                || !ReferenceEquals(coordinator.ActiveWorkspace, workspace)
+                || !string.Equals(_activeWorkspace?.Id, workspace.WorkspaceId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            if (!await coordinator.ResetActiveWorkspaceAsync(workspace.WorkspaceId))
+            {
+                return;
+            }
+        }
+        finally
+        {
+            _providerResetInProgress = null;
+            if (_pageState == PageLifecycleState.Ready
+                && ReferenceEquals(coordinator.ActiveWorkspace, workspace))
+            {
+                WorkspaceActionsButton.IsEnabled = workspace.IsLive;
+            }
+        }
+
+        if (_pageState == PageLifecycleState.Ready && _activeWorkspace is { } activeWorkspace)
+        {
+            await SelectWorkspaceAsync(activeWorkspace.Id);
         }
     }
 
-    private async Task CreateWorkspaceAsync()
+    private async Task<WorkspaceTab?> CreateWorkspaceAsync()
     {
+        if (_pageState != PageLifecycleState.Ready || _providerResetInProgress is not null)
+        {
+            return null;
+        }
+
+        if (_workspaces.Count >= WorkspaceSession.MaximumWorkspaceCount)
+        {
+            ShowStatus(
+                "Workspace limit reached",
+                $"AI Drawer keeps up to {WorkspaceSession.MaximumWorkspaceCount} recoverable workspaces in this version. Close one before creating another.",
+                InfoBarSeverity.Warning);
+            return null;
+        }
+
         var workspace = new WorkspaceTab(GetNextHomeWorkspaceNumber());
         _workspaces.Add(workspace);
         AddWorkspaceTab(workspace);
         UpdateCloseButtonVisibility();
-        await PersistSessionAsync();
         await SelectWorkspaceAsync(workspace.Id);
+        return workspace;
     }
 
     private async Task OpenProviderInActiveWorkspaceAsync(string providerId)
     {
-        if (_workspaceCoordinator is null || _activeWorkspace is null || !_activeWorkspace.IsHome)
+        if (_pageState != PageLifecycleState.Ready
+            || _providerResetInProgress is not null
+            || _workspaceCoordinator is null
+            || _activeWorkspace is null
+            || !_activeWorkspace.IsHome)
         {
             return;
         }
 
-        var provider = _workspaceCoordinator.Providers.Single(candidate => candidate.Id == providerId);
+        var workspace = _activeWorkspace;
+        await OpenProviderInWorkspaceAsync(workspace, providerId);
+    }
+
+    private async Task OpenProviderInWorkspaceAsync(WorkspaceTab workspace, string providerId)
+    {
+        if (_pageState != PageLifecycleState.Ready
+            || _providerResetInProgress is not null
+            || _workspaceCoordinator is not { } coordinator
+            || !_workspaces.Contains(workspace)
+            || _closingWorkspaceIds.Contains(workspace.Id)
+            || !workspace.IsHome)
+        {
+            return;
+        }
+
+        var provider = coordinator.Providers.FirstOrDefault(candidate => candidate.Id == providerId);
+        if (provider is null)
+        {
+            return;
+        }
+
         var workspaceNumber = GetNextWorkspaceNumber(provider);
-        _activeWorkspace.SelectProvider(provider, workspaceNumber);
-        UpdateWorkspaceTab(_activeWorkspace);
-        await PersistSessionAsync();
-        await SelectWorkspaceAsync(_activeWorkspace.Id);
+        workspace.SelectProvider(provider, workspaceNumber);
+        UpdateWorkspaceTab(workspace);
+        if (ReferenceEquals(_activeWorkspace, workspace))
+        {
+            await SelectWorkspaceAsync(workspace.Id);
+        }
+        else
+        {
+            await PersistSessionAsync();
+        }
     }
 
     private async Task SelectWorkspaceAsync(string workspaceId)
     {
-        if (_workspaceCoordinator is null || _workspaces.FirstOrDefault(workspace => workspace.Id == workspaceId) is not { } workspace)
+        if (_pageState != PageLifecycleState.Ready
+            || _providerResetInProgress is not null
+            || _workspaceCoordinator is not { } coordinator
+            || _closingWorkspaceIds.Contains(workspaceId)
+            || _workspaces.FirstOrDefault(workspace => workspace.Id == workspaceId) is not { } workspace)
         {
             return;
         }
 
+        var selectionVersion = ++_selectionVersion;
         _activeWorkspace = workspace;
         UpdateWorkspaceTabSelection();
         HideWorkspaceActivity();
         RecoveryPanel.Visibility = Visibility.Collapsed;
+        WorkspaceActionsButton.IsEnabled = false;
 
         if (workspace.IsHome)
         {
-            _workspaceCoordinator.DeactivateActiveWorkspace();
+            await coordinator.DeactivateActiveWorkspaceAsync();
+            if (!IsCurrentSelection(selectionVersion, workspace))
+            {
+                return;
+            }
+
             HomePanel.Visibility = Visibility.Visible;
             WebViewHost.Visibility = Visibility.Collapsed;
             AnimateIn(HomePanel);
             CompatibilityStatusText.Visibility = Visibility.Collapsed;
-            WorkspaceActionsButton.IsEnabled = false;
             StatusBanner.Visibility = Visibility.Collapsed;
             UpdateSupportReminderVisibility();
             await PersistSessionAsync();
@@ -359,11 +632,15 @@ public sealed partial class MainPage : Page
 
         if (workspace.IsProviderUnavailable)
         {
-            _workspaceCoordinator.DeactivateActiveWorkspace();
+            await coordinator.DeactivateActiveWorkspaceAsync();
+            if (!IsCurrentSelection(selectionVersion, workspace))
+            {
+                return;
+            }
+
             HomePanel.Visibility = Visibility.Collapsed;
             WebViewHost.Visibility = Visibility.Collapsed;
             CompatibilityStatusText.Visibility = Visibility.Collapsed;
-            WorkspaceActionsButton.IsEnabled = false;
             HomeSupportReminder.Visibility = Visibility.Collapsed;
             ShowStatus(
                 "Workspace provider unavailable",
@@ -381,19 +658,36 @@ public sealed partial class MainPage : Page
         CompatibilityStatusText.Visibility = Visibility.Visible;
         ReloadActionText.Text = $"Reload {provider.DisplayName}";
         RestartActionText.Text = $"Restart {provider.DisplayName} workspace";
-        WorkspaceActionsButton.IsEnabled = true;
         _updatingSettingsUi = true;
         KeepActiveToggle.IsOn = workspace.KeepActive;
         _updatingSettingsUi = false;
         HomeSupportReminder.Visibility = Visibility.Collapsed;
-        await _workspaceCoordinator.ActivateAsync(
+        var activated = await coordinator.ActivateAsync(
             workspace.Id,
             provider,
             _settings.RestoreExactWorkspace ? workspace.RestoreLocator : null,
             workspace.KeepActive,
-            _settings.RestoreExactWorkspace && workspace.WasRestoredFromSession);
+            _settings.RestoreExactWorkspace && workspace.ShouldExplainHomeFallback);
+        if (!IsCurrentSelection(selectionVersion, workspace))
+        {
+            return;
+        }
+
+        if (activated
+            && _settings.RestoreExactWorkspace
+            && coordinator.TryPromoteCommittedRestoreLocator(workspace.Id, out var restoreLocator))
+        {
+            workspace.SetRestoreLocator(restoreLocator);
+        }
+
+        WorkspaceActionsButton.IsEnabled = activated;
         await PersistSessionAsync();
     }
+
+    private bool IsCurrentSelection(long selectionVersion, WorkspaceTab workspace) =>
+        _pageState == PageLifecycleState.Ready
+        && selectionVersion == _selectionVersion
+        && ReferenceEquals(_activeWorkspace, workspace);
 
     private void PopulateProviderChooser()
     {
@@ -590,6 +884,7 @@ public sealed partial class MainPage : Page
         container.Children.Add(close);
         WorkspaceTabs.Children.Add(container);
         _workspaceTabViews.Add(workspace.Id, new WorkspaceTabView(container, tab, close));
+        UpdateWorkspaceTab(workspace);
         AnimateIn(container);
     }
 
@@ -634,12 +929,24 @@ public sealed partial class MainPage : Page
 
     private async Task<PermissionDecision> RequestPermissionAsync(PermissionRequest request)
     {
+        if (_pageState != PageLifecycleState.Ready
+            || !string.Equals(_activeWorkspace?.Id, request.WorkspaceId, StringComparison.Ordinal))
+        {
+            return new PermissionDecision(false, false);
+        }
+
         var result = await ShowPromptAsync(
             $"Allow {request.PermissionKind} for {request.ProviderName}?",
-            "The provider requested a privileged browser permission. AI Drawer will not grant it automatically.",
+            $"Requesting origin: {request.Origin}. The decision applies to the shared {request.ProviderName} provider profile on this device. AI Drawer will not grant it automatically.",
             "Allow",
             "Deny",
             showRememberChoice: true);
+
+        if (_pageState != PageLifecycleState.Ready
+            || !string.Equals(_activeWorkspace?.Id, request.WorkspaceId, StringComparison.Ordinal))
+        {
+            return new PermissionDecision(false, false);
+        }
 
         return new PermissionDecision(result.IsPrimary, result.RememberDecision);
     }
@@ -652,6 +959,11 @@ public sealed partial class MainPage : Page
         }
 
         var session = await _sessionStore.LoadSessionAsync();
+        if (_pageState != PageLifecycleState.Loading)
+        {
+            return;
+        }
+
         foreach (var restored in session.Workspaces)
         {
             var provider = restored.ProviderId is null
@@ -685,14 +997,15 @@ public sealed partial class MainPage : Page
             ?? _workspaces[0];
     }
 
-    private async Task PersistSessionAsync()
+    private async Task<bool> PersistSessionAsync()
     {
         try
         {
             await _sessionStore.SaveSessionAsync(
-                _workspaces,
+                _workspaces.Where(workspace => !_closingWorkspaceIds.Contains(workspace.Id)).ToArray(),
                 _activeWorkspace?.Id,
                 _settings.RestoreExactWorkspace);
+            return true;
         }
         catch (Exception exception)
         {
@@ -700,6 +1013,7 @@ public sealed partial class MainPage : Page
                 "Workspace changes could not be saved",
                 $"The current session is still available, but restart restore may be incomplete ({exception.GetType().Name}).",
                 InfoBarSeverity.Warning);
+            return false;
         }
     }
 
@@ -757,7 +1071,9 @@ public sealed partial class MainPage : Page
 
     private async void RestoreExactWorkspaceToggle_Toggled(object sender, RoutedEventArgs e)
     {
-        if (_updatingSettingsUi)
+        if (_pageState != PageLifecycleState.Ready
+            || _providerResetInProgress is not null
+            || _updatingSettingsUi)
         {
             return;
         }
@@ -765,20 +1081,46 @@ public sealed partial class MainPage : Page
         _settings = _settings with { RestoreExactWorkspace = RestoreExactWorkspaceToggle.IsOn };
         if (!_settings.RestoreExactWorkspace)
         {
-            _workspaceCoordinator?.ClearAllRestoreLocators();
+            _workspaceCoordinator?.ClearAllPersistedRestoreLocators();
             foreach (var workspace in _workspaces)
             {
                 workspace.SetRestoreLocator(null);
+                workspace.SuppressHomeFallbackExplanation();
             }
+        }
+        else if (_workspaceCoordinator is { } coordinator)
+        {
+            PromoteCommittedRestoreLocators(coordinator);
         }
 
         await PersistSettingsAsync();
+        if (_pageState != PageLifecycleState.Ready)
+        {
+            return;
+        }
+
         await PersistSessionAsync();
+    }
+
+    private void PromoteCommittedRestoreLocators(WorkspaceCoordinator coordinator)
+    {
+        foreach (var workspace in _workspaces.Where(workspace =>
+                     !workspace.IsHome && !_closingWorkspaceIds.Contains(workspace.Id)))
+        {
+            if (!string.Equals(workspace.ProviderId, _providerResetInProgress, StringComparison.Ordinal)
+                && coordinator.TryPromoteCommittedRestoreLocator(workspace.Id, out var restoreLocator))
+            {
+                workspace.SetRestoreLocator(restoreLocator);
+            }
+        }
     }
 
     private async void MemoryModeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_updatingSettingsUi || MemoryModeComboBox.SelectedItem is not ComboBoxItem { Tag: string tag })
+        if (_pageState != PageLifecycleState.Ready
+            || _providerResetInProgress is not null
+            || _updatingSettingsUi
+            || MemoryModeComboBox.SelectedItem is not ComboBoxItem { Tag: string tag })
         {
             return;
         }
@@ -793,7 +1135,10 @@ public sealed partial class MainPage : Page
 
     private async void KeepActiveToggle_Toggled(object sender, RoutedEventArgs e)
     {
-        if (_updatingSettingsUi || _activeWorkspace is null)
+        if (_pageState != PageLifecycleState.Ready
+            || _providerResetInProgress is not null
+            || _updatingSettingsUi
+            || _activeWorkspace is null)
         {
             return;
         }
@@ -822,11 +1167,37 @@ public sealed partial class MainPage : Page
 
     private async void SupportDevelopmentButton_Click(object sender, RoutedEventArgs e)
     {
-        await Launcher.LaunchUriAsync(AppLinks.BuyMeACoffeeUri);
+        if (_pageState != PageLifecycleState.Ready)
+        {
+            return;
+        }
+
+        try
+        {
+            if (!await Launcher.LaunchUriAsync(SupportUri))
+            {
+                ShowStatus(
+                    "Support page could not be opened",
+                    "Windows did not find an application that could open the HTTPS link.",
+                    InfoBarSeverity.Warning);
+            }
+        }
+        catch (Exception exception)
+        {
+            ShowStatus(
+                "Support page could not be opened",
+                $"Windows could not open the HTTPS link ({exception.GetType().Name}).",
+                InfoBarSeverity.Warning);
+        }
     }
 
     private async void SupportNotNowButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_pageState != PageLifecycleState.Ready)
+        {
+            return;
+        }
+
         _settings = _settings with
         {
             SupportReminderSnoozedUntilUtc = DateTimeOffset.UtcNow.AddDays(90)
@@ -837,6 +1208,11 @@ public sealed partial class MainPage : Page
 
     private async void SupportNeverButton_Click(object sender, RoutedEventArgs e)
     {
+        if (_pageState != PageLifecycleState.Ready)
+        {
+            return;
+        }
+
         _settings = _settings with { SupportReminderDismissed = true };
         HomeSupportReminder.Visibility = Visibility.Collapsed;
         await PersistSettingsAsync();
@@ -1072,6 +1448,14 @@ public sealed partial class MainPage : Page
     {
         WorkspaceActionsFlyout.Hide();
         App.ExitApplication();
+    }
+
+    private enum PageLifecycleState
+    {
+        Unloaded,
+        Loading,
+        Ready,
+        ShuttingDown
     }
 
     private sealed record WorkspaceTabView(Grid Container, Button Tab, Button Close);

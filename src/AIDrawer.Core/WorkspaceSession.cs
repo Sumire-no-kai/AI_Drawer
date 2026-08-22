@@ -6,8 +6,7 @@ public sealed record WorkspaceSession(
     IReadOnlyList<ConversationWorkspaceSnapshot> Workspaces)
 {
     public const int CurrentSchemaVersion = 1;
-
-    public static WorkspaceSession Empty { get; } = new(CurrentSchemaVersion, null, []);
+    public const int MaximumWorkspaceCount = 100;
 }
 
 public sealed record ConversationWorkspaceSnapshot(

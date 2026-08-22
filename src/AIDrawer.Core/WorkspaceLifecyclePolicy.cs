@@ -5,7 +5,8 @@ public sealed record LiveWorkspaceState(
     bool IsActive,
     bool KeepActive,
     DateTimeOffset ProtectedUntil,
-    DateTimeOffset LastActivated);
+    DateTimeOffset LastActivated,
+    bool IsOperationProtected = false);
 
 public sealed class WorkspaceLifecyclePolicy(
     int steadyLiveLimit = 2,
@@ -20,7 +21,11 @@ public sealed class WorkspaceLifecyclePolicy(
         ? hardLiveLimit
         : throw new ArgumentOutOfRangeException(nameof(hardLiveLimit));
 
-    public TimeSpan GracePeriod { get; } = gracePeriod ?? TimeSpan.FromMinutes(5);
+    public TimeSpan GracePeriod { get; } = gracePeriod is null
+        ? TimeSpan.FromMinutes(5)
+        : gracePeriod.Value >= TimeSpan.Zero
+            ? gracePeriod.Value
+            : throw new ArgumentOutOfRangeException(nameof(gracePeriod));
 
     public IReadOnlyList<string> SelectForDisposal(
         IReadOnlyCollection<LiveWorkspaceState> liveWorkspaces,
@@ -30,6 +35,7 @@ public sealed class WorkspaceLifecyclePolicy(
         var target = enforceHardLimit ? HardLiveLimit - 1 : SteadyLiveLimit;
         var removable = liveWorkspaces
             .Where(workspace => !workspace.IsActive)
+            .Where(workspace => !workspace.IsOperationProtected)
             .Where(workspace => enforceHardLimit || workspace.ProtectedUntil <= now)
             .OrderBy(workspace => workspace.KeepActive)
             .ThenBy(workspace => workspace.LastActivated)

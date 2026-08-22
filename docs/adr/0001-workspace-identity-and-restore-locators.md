@@ -10,9 +10,9 @@ AI Drawer must support several native conversation workspaces without keeping an
 
 ## Decision
 
-Each native conversation workspace has stable persisted identity independent of its live WebView. Inactive WebViews enter a low-memory grace period and may later be disposed, while the native workspace remains identifiable and reloadable.
+Each native conversation workspace has stable persisted identity independent of its live WebView. Inactive WebViews enter a low-memory grace period and may later be disposed, while the native workspace remains identifiable and reloadable. A native-known navigation, permission request, or download protects the affected live view from automatic disposal; when the hard cap has no safe victim, a new activation is blocked with a retry message rather than breaking the operation.
 
-For providers with a reviewed URL shape, AI Drawer may persist one restricted restore locator: an HTTPS provider origin plus an allowlisted opaque conversation path. Query parameters and fragments are removed, the value is encrypted for the current Windows user, and it is revalidated before restore. Providers without a reviewed rule fall back to their home page.
+For providers with a reviewed URL shape, AI Drawer may persist one restricted restore locator: an HTTPS provider origin plus an allowlisted opaque conversation path. Query parameters and fragments are removed, the value is encrypted for the current Windows user, and it is revalidated before storage and restore. Within the same process, a workspace may additionally retain one non-serialized app-domain HTTPS path with query and fragment removed. Providers without a reviewed persisted rule fall back to their home page after restart.
 
 The MVP uses one WebView2 provider profile per provider. Multiple accounts for the same provider are deferred because introducing account-scoped profiles changes profile reset, navigation, migration, and privacy semantics.
 

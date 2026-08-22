@@ -2,6 +2,39 @@
 
 This is the durable development record for implementation decisions, verified behavior, limitations, and open work. It is not a release changelog. Planned behavior must not be presented as shipped or provider-compatible behavior.
 
+## 2026-08-22 — Full code review and M2.2 correctness hardening
+
+### Review scope and changes
+
+- Reviewed every maintained C# and XAML source file in the production application, pure Core project, framework-free policy checks, and Compatibility Lab. The review covered bounds, null and async behavior, Win32/WebView2 calls, disposal, persistence ordering, privacy boundaries, lifecycle behavior, module depth, deletion candidates, and PRD/ADR conformance.
+- Corrected the `CoWaitForMultipleObjects` P/Invoke handle-count width from 64-bit to the Win32 `ULONG` width, constrained application-owned native imports to the Windows system directory, and configured both production and lab WebViews to disable host-object access and web messaging in addition to the existing DevTools/autofill/password restrictions.
+- Made the shared WebView2 environment lazy and retryable after creation failure. Provider/Home transitions now share the coordinator serialization seam, WebView initialization uses a generation check so shutdown cannot reactivate a disposed view, failed initialization no longer reports an active live workspace, and inactive workspace error state is replayed when selected.
+- Added operation-aware disposal protection for known navigation, permission, and download work. The lifecycle policy does not auto-release those views even at the hard cap; when no safe victim exists, activation is blocked with a retry message. The active view and native workspace identity remain protected as before.
+- Separated the transient same-process navigation target from the restricted encrypted restart locator. Successful navigation and same-document source changes are observed without reading DOM, query parameters and fragments remain excluded, leaving a reviewed path clears stale persisted identity, and enabling exact restore uses the latest provider-policy-captured locator.
+- Corrected remembered-permission copy and behavior to name the sanitized requesting origin and provider-profile scope. Background-workspace requests fail closed instead of placing a prompt over a different active workspace.
+- Made provider-profile reset return an explicit success result, keep its temporary profile view alive through `ClearBrowsingDataAsync`, preserve the error instead of immediately hiding it with a reload, disclose full provider-profile browsing-data/sign-out scope, and clear locator metadata for same-provider native tabs that were never instantiated during the current process.
+- Enforced one 100-workspace bound across native creation, save, and load; revalidated restore locators at the durability boundary; stopped DPAPI protection failure from overwriting a previously good session with a lossy document; queued complete immutable session/settings snapshots through one ordered writer; and added a frozen final snapshot before explicit Exit. Restored provider tabs now start in a visible reload-required lifecycle state.
+- Closed async transition races found in the post-fix review: only the latest workspace selection may update native UI, activation/restart failure keeps actions disabled, exact restore refreshes from the last committed locator on every successful selection, and Exit freezes events and disposes WebViews before its final ordered writes. Provider-profile reset now durably clears every same-provider native locator before clearing browsing data and cannot overlap another selection or reset.
+- Removed shallow or dead code that passed the deletion test: the one-use `AppLinks` wrapper, unused `WorkspaceSession.Empty`, and an always-true `isActive` parameter. Retained the pure Core policies, coordinator, per-provider WebView module, sanitized lab event helper, persistence DTOs, and separate lab/product provider catalogs because deleting or merging them would move complexity across the seam or mix test-candidate and product-support semantics.
+- Made Debug lab builds explicitly unpackaged with WinApp run registration disabled, disabled its host-object/web-message bridge, restored its empty-state element after a test ends, and removed unused WinUI template comments.
+
+### Verification boundary
+
+- `D:\DevTools\dotnet\dotnet.exe build src\AIDrawer.App\AIDrawer.App.csproj --configuration Debug --arch x64 --no-restore -p:TreatWarningsAsErrors=true` completed with zero warnings and zero errors.
+- The production and Core-check projects also completed a `Recommended` .NET analyzer build with warnings treated as errors; repository formatting verification completed without changes.
+- The framework-free Core harness completed all nine locator/lifecycle checks, including operation-protected hard-cap selection and negative-grace rejection.
+- The unpackaged x64 Debug Compatibility Lab build completed with no compilation error. NuGet emitted `NU1900` because the restricted environment could not reach the remote vulnerability index; this was not treated as a clean dependency-audit result.
+- An x86 no-restore build was attempted but stopped before compilation because the existing assets file contains only the restored x64 target. No additional runtime pack was restored or installed. x86 and ARM64 therefore remain unverified.
+- No application was launched, installed, registered, or added to the Start menu during this review. The new WebView lifecycle, profile reset, source-change restoration, permission, and shutdown behavior still require focused unpackaged runtime verification with disposable unsigned-in profiles.
+
+### Remaining architectural decisions and risks
+
+- Session load still maps missing, corrupt, oversized, unsupported-schema, and temporary I/O failures to the same empty result. Fixing this without silently overwriting or unexpectedly retaining a damaged file requires an explicit product choice: preserve and block writes pending user action, quarantine a recoverable backup and start fresh, or another disclosed policy.
+- Renderer-unresponsive, renderer-exit, browser-exit, utility/GPU failure, and OOM states still share one recovery message. The required failure-specific wait/reload/recreate/environment-reset ladder remains M2 Gate work and needs controlled fault verification.
+- Allowed provider/auth popups still navigate the current WebView. Provider-specific OAuth/opener and popup policy remains unverified and may require a controlled native popup or external-browser adapter.
+- The Compatibility Lab's timestamped `Fresh disposable` data directory is isolated but is not yet automatically deleted after WebView2 releases its processes. Cleanup must validate the resolved generated path before any recursive deletion.
+- `MainPage` remains an oversized composition module with native active state duplicated by `WorkspaceCoordinator`. A future deep `WorkspaceCollection` aggregate may absorb identity, ordering, active transition, naming, restore, and immutable snapshot invariants, but a mechanical partial-class split or a DI/repository layer was rejected as shallow indirection.
+
 ## 2026-08-21 — M2.2 workspace persistence and lifecycle implementation
 
 ### Included code
