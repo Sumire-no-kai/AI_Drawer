@@ -16,6 +16,12 @@ This is the durable development record for implementation decisions, verified be
 - All application runs were direct from the repository's unpackaged Debug output. No MSIX/package registration, installation, Start-menu entry, provider login, prompt, response, cookie, credential, or payment interaction occurred. Temporary test roots were removed after each completed run.
 - This is not a provider compatibility result. Real encrypted-locator restart; renderer-unresponsive, OOM, GPU/utility, and multi-workspace fault categories; controlled authentication popup return; external/purchase popup policy; provider-profile reset; fresh-profile deletion after a real WebView2 child exit; measurable live-view pressure; accessibility breadth; x86; ARM64 device; and Windows 10/11 matrix validation remain open.
 
+### Automated follow-up
+
+- Extended the application harness to eleven checks. New coverage verifies a real current-user DPAPI round trip for a fictional reviewed locator (the serialized session does not contain its plaintext URL), restoration of that saved workspace into a new unpackaged application process, controlled-authentication popup classification, query/fragment stripping for unrelated external HTTPS links, and known Gemini purchase-route classification before navigation.
+- The Compatibility Lab's generated Gemini `fresh-*` profile was created and then removed after a normal **End test** flow. It used a generated temporary data root and no provider interaction.
+- Attempts to drive multi-workspace pressure and the complete two-workspace profile-reset sequence through the short-lived UI test host exceeded that host's command time budget and were cleaned up without a product conclusion. They remain open; no capacity or reset claim is made from those attempts.
+
 ## 2026-08-22 — Windows on ARM64 build and publish path
 
 ### Implemented behavior

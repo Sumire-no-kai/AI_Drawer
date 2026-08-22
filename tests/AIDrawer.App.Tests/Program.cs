@@ -80,6 +80,30 @@ try
         await ThrowsAsync<SessionWriteBlockedException>(() => store.SaveSessionAsync([], null, restoreExactWorkspace: false));
     });
 
+    await CheckAsync("a reviewed locator survives a DPAPI save and load round trip", async () =>
+    {
+        Directory.Delete(appDataRoot, recursive: true);
+        var provider = ProviderCatalog.AvailableProviders.Single(candidate => candidate.Id == "chatgpt");
+        var locator = new Uri("https://chatgpt.com/c/opaque-validation-id");
+        var workspace = new WorkspaceTab(
+            "workspace-1",
+            "ChatGPT",
+            provider,
+            provider.Id,
+            keepActive: false,
+            locator,
+            wasRestoredFromSession: false);
+        var store = new WorkspaceSessionStore();
+
+        await store.SaveSessionAsync([workspace], workspace.Id, restoreExactWorkspace: true);
+        var persisted = await File.ReadAllTextAsync(sessionPath);
+        False(persisted.Contains(locator.AbsoluteUri, StringComparison.Ordinal));
+
+        var result = await store.LoadSessionAsync();
+        Equal(SessionLoadStatus.Loaded, result.Status);
+        Equal(locator, new Uri(result.Session.Workspaces.Single().RestoreLocator!));
+    });
+
     await CheckAsync("an exclusively locked session is treated as temporary and never overwritten", async () =>
     {
         await WriteSessionAsync("""
@@ -106,6 +130,84 @@ try
         Equal(WorkspaceSession.MaximumWorkspaceCount, persisted!.Workspaces.Count);
         Null(persisted.ActiveWorkspaceId);
         False(File.Exists($"{sessionPath}.tmp"));
+    });
+
+    await CheckAsync("a saved restricted locator restores its provider workspace in a new application process", async () =>
+    {
+        Directory.Delete(appDataRoot, recursive: true);
+        var provider = ProviderCatalog.AvailableProviders.Single(candidate => candidate.Id == "chatgpt");
+        var workspace = new WorkspaceTab(
+            "workspace-restore",
+            "ChatGPT",
+            provider,
+            provider.Id,
+            keepActive: false,
+            new Uri("https://chatgpt.com/c/opaque-restart-validation-id"),
+            wasRestoredFromSession: false);
+        var store = new WorkspaceSessionStore();
+        await store.SaveSessionAsync([workspace], workspace.Id, restoreExactWorkspace: true);
+
+        var appPath = GetAppPath();
+        True(File.Exists(appPath));
+        using var process = new Process
+        {
+            StartInfo = new ProcessStartInfo(appPath)
+            {
+                WorkingDirectory = Path.GetDirectoryName(appPath)!,
+                UseShellExecute = false
+            }
+        };
+        process.StartInfo.Environment["AI_DRAWER_TEST_DATA_ROOT"] = testRoot;
+        True(process.Start());
+        try
+        {
+            await WaitUntilAsync(() =>
+            {
+                process.Refresh();
+                return process.MainWindowHandle != IntPtr.Zero;
+            }, TimeSpan.FromSeconds(15));
+
+            var root = AutomationElement.FromHandle(process.MainWindowHandle);
+            var continueButton = FindByName(root, "Continue");
+            if (continueButton is null)
+            {
+                throw new InvalidOperationException("The isolated first-run welcome action was not found.");
+            }
+
+            ((InvokePattern)continueButton.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+            await WaitUntilAsync(() => FindByName(root, "ChatGPT") is not null, TimeSpan.FromSeconds(10));
+            await WaitUntilAsync(
+                () => FindByName(root, "Workspace actions") is { Current.IsEnabled: true },
+                TimeSpan.FromSeconds(15));
+            True(Directory.Exists(Path.Combine(appDataRoot, "WebView2")));
+        }
+        finally
+        {
+            process.Refresh();
+            if (!process.HasExited && string.Equals(process.MainModule?.FileName, appPath, StringComparison.OrdinalIgnoreCase))
+            {
+                process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync();
+            }
+        }
+    });
+
+    await CheckAsync("popup policy preserves provider auth and strips unrelated external parameters", () =>
+    {
+        var chatGpt = ProviderCatalog.AvailableProviders.Single(candidate => candidate.Id == "chatgpt");
+        Equal(PopupDisposition.OpenControlledWindow, chatGpt.ClassifyPopup("https://auth.openai.com/authorize"));
+        Equal(PopupDisposition.OpenExternal, chatGpt.ClassifyPopup("https://example.com/path?opaque=secret#fragment"));
+        Equal(PopupDisposition.BlockUnsupported, chatGpt.ClassifyPopup("javascript:alert(1)"));
+        Equal("https://example.com/path", chatGpt.CreateSafeExternalUri("https://example.com/path?opaque=secret#fragment")?.AbsoluteUri.TrimEnd('/'));
+        return Task.CompletedTask;
+    });
+
+    await CheckAsync("known purchase routes are blocked before navigation", () =>
+    {
+        var gemini = ProviderCatalog.AvailableProviders.Single(candidate => candidate.Id == "gemini");
+        Equal(PopupDisposition.BlockPurchase, gemini.ClassifyPopup("https://gemini.google.com/upgrade?opaque=secret"));
+        True(gemini.IsKnownPurchaseUri("https://pay.google.com/checkout"));
+        return Task.CompletedTask;
     });
 
     await CheckAsync("the recovery UI backs up a corrupt session before continuing", async () =>
@@ -178,7 +280,7 @@ if (failures.Count > 0)
     return 1;
 }
 
-Console.WriteLine("7 app session-recovery and UI boundary checks passed.");
+Console.WriteLine("11 app session-recovery, policy, and UI boundary checks passed.");
 return 0;
 
 async Task WriteSessionAsync(string content)
