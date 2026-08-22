@@ -25,6 +25,7 @@ public sealed partial class MainPage : Page
     private WorkspaceTab? _activeWorkspace;
     private AppSettings _settings = new();
     private TaskCompletionSource<PromptDecision>? _promptCompletion;
+    private TaskCompletionSource<SessionRecoveryDecision>? _sessionRecoveryCompletion;
     private PageLifecycleState _pageState;
     private long _selectionVersion;
     private string? _providerResetInProgress;
@@ -69,6 +70,7 @@ public sealed partial class MainPage : Page
         _pageState = PageLifecycleState.ShuttingDown;
         _selectionVersion++;
         CompletePrompt(isPrimary: false);
+        CompleteSessionRecovery(SessionRecoveryDecision.Exit);
 
         if (shouldPersist && _settings.RestoreExactWorkspace && _workspaceCoordinator is { } coordinator)
         {
@@ -133,8 +135,8 @@ public sealed partial class MainPage : Page
         _workspaceCoordinator.LifecycleChanged += Workspace_LifecycleChanged;
         _workspaceCoordinator.SuccessfulOpen += Workspace_SuccessfulOpen;
         PopulateProviderChooser();
-        await RestoreSessionAsync();
-        if (_pageState != PageLifecycleState.Loading)
+        if (!await RestoreSessionWithRecoveryAsync()
+            || _pageState != PageLifecycleState.Loading)
         {
             return;
         }
@@ -169,6 +171,7 @@ public sealed partial class MainPage : Page
             _pageState = PageLifecycleState.ShuttingDown;
             _selectionVersion++;
             CompletePrompt(isPrimary: false);
+            CompleteSessionRecovery(SessionRecoveryDecision.Exit);
             DisposeWorkspace();
             _workspaces.Clear();
             _closingWorkspaceIds.Clear();
@@ -951,19 +954,71 @@ public sealed partial class MainPage : Page
         return new PermissionDecision(result.IsPrimary, result.RememberDecision);
     }
 
-    private async Task RestoreSessionAsync()
+    private async Task<bool> RestoreSessionWithRecoveryAsync()
+    {
+        while (_pageState == PageLifecycleState.Loading)
+        {
+            var result = await RestoreSessionAsync();
+            if (!result.Status.RequiresExplicitRecovery())
+            {
+                return true;
+            }
+
+            var decision = await ShowSessionRecoveryAsync(result.Status);
+            if (_pageState != PageLifecycleState.Loading || decision == SessionRecoveryDecision.Exit)
+            {
+                App.ExitApplication();
+                return false;
+            }
+
+            if (decision == SessionRecoveryDecision.Retry)
+            {
+                continue;
+            }
+
+            var backupResult = await _sessionStore.BackupBlockedSessionAsync();
+            if (backupResult != SessionBackupResult.Created)
+            {
+                ShowStatus(
+                    "Session backup did not finish",
+                    "The existing session was not changed. Retry the backup after another app releases the file, or exit without saving.",
+                    InfoBarSeverity.Warning);
+                continue;
+            }
+
+            if (result.Status != SessionLoadStatus.LocatorRecoveryRequired)
+            {
+                ClearRestoredWorkspaceTabs();
+                EnsureHomeWorkspace();
+            }
+
+            ShowStatus(
+                "Previous session backed up",
+                "AI Drawer preserved the previous session file locally and will continue without overwriting it.",
+                InfoBarSeverity.Informational);
+            return true;
+        }
+
+        return false;
+    }
+
+    private async Task<SessionLoadResult> RestoreSessionAsync()
     {
         if (_workspaceCoordinator is null)
         {
-            return;
+            return new SessionLoadResult(SessionLoadStatus.TemporarilyUnavailable, RestoredSession.Empty);
         }
 
-        var session = await _sessionStore.LoadSessionAsync();
+        ClearRestoredWorkspaceTabs();
+        var result = await _sessionStore.LoadSessionAsync();
         if (_pageState != PageLifecycleState.Loading)
         {
-            return;
+            return result;
         }
 
+        var session = result.Status is SessionLoadStatus.Loaded or SessionLoadStatus.LocatorRecoveryRequired
+            ? result.Session
+            : RestoredSession.Empty;
         foreach (var restored in session.Workspaces)
         {
             var provider = restored.ProviderId is null
@@ -984,17 +1039,80 @@ public sealed partial class MainPage : Page
             AddWorkspaceTab(workspace);
         }
 
-        if (_workspaces.Count == 0)
+        if (_workspaces.Count == 0 && !result.Status.RequiresExplicitRecovery())
         {
-            var workspace = new WorkspaceTab(1);
-            _workspaces.Add(workspace);
-            AddWorkspaceTab(workspace);
+            EnsureHomeWorkspace();
         }
 
         UpdateCloseButtonVisibility();
         _activeWorkspace = _workspaces.FirstOrDefault(workspace =>
             string.Equals(workspace.Id, session.ActiveWorkspaceId, StringComparison.Ordinal))
-            ?? _workspaces[0];
+            ?? _workspaces.FirstOrDefault();
+        return result;
+    }
+
+    private void ClearRestoredWorkspaceTabs()
+    {
+        _workspaces.Clear();
+        _workspaceTabViews.Clear();
+        WorkspaceTabs.Children.Clear();
+        _activeWorkspace = null;
+    }
+
+    private void EnsureHomeWorkspace()
+    {
+        if (_workspaces.Count != 0)
+        {
+            return;
+        }
+
+        var workspace = new WorkspaceTab(1);
+        _workspaces.Add(workspace);
+        AddWorkspaceTab(workspace);
+    }
+
+    private Task<SessionRecoveryDecision> ShowSessionRecoveryAsync(SessionLoadStatus status)
+    {
+        SessionRecoveryTitle.Text = status switch
+        {
+            SessionLoadStatus.LocatorRecoveryRequired => "Conversation location needs recovery",
+            SessionLoadStatus.TemporarilyUnavailable => "Previous workspace session is temporarily unavailable",
+            SessionLoadStatus.TooLarge => "Previous workspace session is too large",
+            SessionLoadStatus.NewerSchema => "Previous workspace session is from a newer version",
+            SessionLoadStatus.UnsupportedSchema => "Previous workspace session uses an unsupported format",
+            _ => "Previous workspace session needs recovery"
+        };
+        SessionRecoveryMessage.Text = status switch
+        {
+            SessionLoadStatus.LocatorRecoveryRequired => "At least one encrypted conversation locator could not be read. The workspace list is still available, but saving now could permanently discard the unreadable locator.",
+            SessionLoadStatus.TemporarilyUnavailable => "AI Drawer could not safely read the existing local session. It will not replace the file with an empty session while the cause is unknown.",
+            SessionLoadStatus.TooLarge => "The local session exceeded the supported safety limit. AI Drawer will not load or overwrite it automatically.",
+            SessionLoadStatus.NewerSchema => "This build cannot safely interpret a session written by a newer AI Drawer version.",
+            SessionLoadStatus.UnsupportedSchema => "This build cannot safely interpret the local session format.",
+            _ => "The local session could not be safely interpreted. AI Drawer will not overwrite it automatically."
+        };
+        _sessionRecoveryCompletion = new TaskCompletionSource<SessionRecoveryDecision>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        SessionRecoveryOverlay.Visibility = Visibility.Visible;
+        SessionRecoveryRetryButton.Focus(FocusState.Programmatic);
+        return _sessionRecoveryCompletion.Task;
+    }
+
+    private void SessionRecoveryRetryButton_Click(object sender, RoutedEventArgs e) =>
+        CompleteSessionRecovery(SessionRecoveryDecision.Retry);
+
+    private void SessionRecoveryBackupButton_Click(object sender, RoutedEventArgs e) =>
+        CompleteSessionRecovery(SessionRecoveryDecision.BackupAndContinue);
+
+    private void SessionRecoveryExitButton_Click(object sender, RoutedEventArgs e) =>
+        CompleteSessionRecovery(SessionRecoveryDecision.Exit);
+
+    private void CompleteSessionRecovery(SessionRecoveryDecision decision)
+    {
+        var completion = _sessionRecoveryCompletion;
+        _sessionRecoveryCompletion = null;
+        SessionRecoveryOverlay.Visibility = Visibility.Collapsed;
+        completion?.TrySetResult(decision);
     }
 
     private async Task<bool> PersistSessionAsync()
@@ -1364,6 +1482,13 @@ public sealed partial class MainPage : Page
 
     private void PromptCancelShortcut_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
+        if (_sessionRecoveryCompletion is not null)
+        {
+            args.Handled = true;
+            CompleteSessionRecovery(SessionRecoveryDecision.Exit);
+            return;
+        }
+
         if (_promptCompletion is null)
         {
             if (SettingsOverlay.Visibility == Visibility.Visible)
@@ -1459,5 +1584,12 @@ public sealed partial class MainPage : Page
     }
 
     private sealed record WorkspaceTabView(Grid Container, Button Tab, Button Close);
+
+    private enum SessionRecoveryDecision
+    {
+        Retry,
+        BackupAndContinue,
+        Exit
+    }
     private sealed record PromptDecision(bool IsPrimary, bool RememberDecision);
 }

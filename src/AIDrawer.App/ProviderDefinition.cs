@@ -77,6 +77,23 @@ internal sealed record ProviderDefinition(
         return builder.Uri;
     }
 
+    internal PopupDisposition ClassifyPopup(string? rawUri)
+    {
+        if (IsKnownPurchaseUri(rawUri))
+        {
+            return PopupDisposition.BlockPurchase;
+        }
+
+        if (IsAllowedEmbeddedUri(rawUri))
+        {
+            return PopupDisposition.OpenControlledWindow;
+        }
+
+        return CreateSafeExternalUri(rawUri) is null
+            ? PopupDisposition.BlockUnsupported
+            : PopupDisposition.OpenExternal;
+    }
+
     internal Uri? CreateSafeInMemoryUri(string? rawUri)
     {
         if (!TryCreateSafeHttpsUri(rawUri, out var uri)
@@ -113,4 +130,12 @@ internal sealed record ProviderDefinition(
     private static bool IsAllowedHost(string host, IReadOnlySet<string> domains) => domains.Any(domain =>
         string.Equals(host, domain, StringComparison.OrdinalIgnoreCase)
         || host.EndsWith($".{domain}", StringComparison.OrdinalIgnoreCase));
+}
+
+internal enum PopupDisposition
+{
+    OpenControlledWindow,
+    OpenExternal,
+    BlockPurchase,
+    BlockUnsupported
 }

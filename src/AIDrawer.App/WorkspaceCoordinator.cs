@@ -22,6 +22,7 @@ internal sealed class WorkspaceCoordinator : IDisposable
     private readonly DispatcherTimer _lifecycleTimer = new() { Interval = TimeSpan.FromSeconds(15) };
     private bool _disposed;
     private bool _windowIsVisible = true;
+    private bool _browserRecoveryInProgress;
 
     internal WorkspaceCoordinator(
         Panel host,
@@ -96,6 +97,7 @@ internal sealed class WorkspaceCoordinator : IDisposable
                 nextWorkspace.RestoreLocatorChanged += Workspace_RestoreLocatorChanged;
                 nextWorkspace.LifecycleChanged += Workspace_LifecycleChanged;
                 nextWorkspace.SuccessfulOpen += Workspace_SuccessfulOpen;
+                nextWorkspace.ProcessFailure += Workspace_ProcessFailure;
                 _workspaces.Add(workspaceId, nextWorkspace);
                 _host.Children.Add(nextWorkspace.View);
             }
@@ -218,6 +220,7 @@ internal sealed class WorkspaceCoordinator : IDisposable
                 ActiveWorkspace = null;
             }
 
+            workspace.ProcessFailure -= Workspace_ProcessFailure;
             workspace.Dispose();
             _host.Children.Remove(workspace.View);
         }
@@ -360,6 +363,116 @@ internal sealed class WorkspaceCoordinator : IDisposable
     private void Workspace_SuccessfulOpen(object? sender, string workspaceId) =>
         SuccessfulOpen?.Invoke(this, workspaceId);
 
+    private async void Workspace_ProcessFailure(object? sender, WorkspaceProcessFailureEventArgs args)
+    {
+        switch (args.Kind)
+        {
+            case WorkspaceProcessFailureKind.BrowserExit:
+                await RecoverBrowserProcessAsync();
+                break;
+            case WorkspaceProcessFailureKind.RendererExit:
+                await RecoverRendererAsync(args.WorkspaceId);
+                break;
+            case WorkspaceProcessFailureKind.OutOfMemory:
+                ReleaseInactiveWorkspacesForMemoryPressure(args.WorkspaceId);
+                break;
+        }
+    }
+
+    private async Task RecoverBrowserProcessAsync()
+    {
+        if (_browserRecoveryInProgress)
+        {
+            return;
+        }
+
+        var lockTaken = false;
+        try
+        {
+            _browserRecoveryInProgress = true;
+            await _selectionLock.WaitAsync(_lifetimeCancellation.Token);
+            lockTaken = true;
+            if (_disposed)
+            {
+                return;
+            }
+
+            _environmentTask = null;
+            foreach (var workspace in _workspaces.Values.Where(workspace => workspace.IsLive).ToArray())
+            {
+                workspace.DisposeView();
+            }
+
+            if (ActiveWorkspace is not { } activeWorkspace)
+            {
+                return;
+            }
+
+            var environment = await GetEnvironmentAsync(activeWorkspace);
+            if (environment is not null && !_disposed)
+            {
+                await activeWorkspace.ActivateAsync(environment, _windowIsVisible);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Shutdown cancels the recovery operation.
+        }
+        finally
+        {
+            if (lockTaken)
+            {
+                _selectionLock.Release();
+            }
+
+            _browserRecoveryInProgress = false;
+        }
+    }
+
+    private async Task RecoverRendererAsync(string workspaceId)
+    {
+        var lockTaken = false;
+        try
+        {
+            await _selectionLock.WaitAsync(_lifetimeCancellation.Token);
+            lockTaken = true;
+            if (_disposed
+                || ActiveWorkspace is not { } activeWorkspace
+                || !string.Equals(activeWorkspace.WorkspaceId, workspaceId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            var environment = await GetEnvironmentAsync(activeWorkspace);
+            if (environment is not null && !_disposed && EnsureCapacityFor(activeWorkspace))
+            {
+                await activeWorkspace.RestartAsync(environment, _windowIsVisible);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Shutdown cancels the recovery operation.
+        }
+        finally
+        {
+            if (lockTaken)
+            {
+                _selectionLock.Release();
+            }
+        }
+    }
+
+    private void ReleaseInactiveWorkspacesForMemoryPressure(string failedWorkspaceId)
+    {
+        foreach (var workspace in _workspaces.Values.Where(workspace =>
+                     !string.Equals(workspace.WorkspaceId, failedWorkspaceId, StringComparison.Ordinal)
+                     && !ReferenceEquals(workspace, ActiveWorkspace)
+                     && workspace.IsLive).ToArray())
+        {
+            workspace.DisposeView();
+        }
+    }
+
     private void LifecycleTimer_Tick(object? sender, object args)
     {
         if (_disposed)
@@ -443,6 +556,7 @@ internal sealed class WorkspaceCoordinator : IDisposable
         _lifetimeCancellation.Cancel();
         foreach (var workspace in _workspaces.Values)
         {
+            workspace.ProcessFailure -= Workspace_ProcessFailure;
             workspace.Dispose();
         }
 

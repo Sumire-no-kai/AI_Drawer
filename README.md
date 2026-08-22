@@ -36,7 +36,7 @@ For reviewed provider URL shapes, the implementation can store one current-user-
 
 The optional support entry opens Edward Lee's shared [Buy Me a Coffee page](https://buymeacoffee.com/edward_lee) for independent projects. Contributions do not activate or unlock AI Drawer, provider services, subscriptions, accounts, premium features, or support plans.
 
-After the full code-review pass, the production x64 Debug project and Core-check project pass the `Recommended` .NET analyzer set with warnings treated as errors, the production build has zero warnings and zero errors, and all nine framework-free locator/lifecycle policy checks pass. The earlier repository-local unpackaged smoke run remains evidence for Settings and welcome-button pointer activation, but the new lifecycle, reset, navigation, and persistence changes have not received a fresh GUI or provider-account run. This is still not M2 acceptance or a performance claim: corrupt/unsupported session recovery behavior needs a product decision, and encrypted-locator restart restoration, provider-profile reset, renderer-specific recovery, popup behavior, instrumented live-view pressure, provider URL behavior, accessibility breadth, x86/ARM64 compilation, and the required Windows 10/11 matrix remain open. There is no public end-user build yet.
+After the full code-review pass, the production x64 Debug project and Core-check project pass the `Recommended` .NET analyzer set with warnings treated as errors, the production build has zero warnings and zero errors, and all nine framework-free locator/lifecycle policy checks pass. The earlier repository-local unpackaged smoke run remains evidence for Settings and welcome-button pointer activation. The implementation now preserves recovery-blocked session files until the user retries or creates a local backup, differentiates WebView2 process-failure recovery, uses controlled same-profile provider popups, and clears Compatibility Lab fresh profiles after WebView2 releases them. These new paths have not received a fresh GUI or provider-account run. This is still not M2 acceptance or a performance claim: encrypted-locator restart restoration, provider-profile reset, renderer-specific recovery, popup behavior, fresh-profile cleanup, instrumented live-view pressure, provider URL behavior, accessibility breadth, x86/ARM64 compilation, and the required Windows 10/11 matrix remain open. There is no public end-user build yet.
 
 | Provider | Current status | Evidence boundary |
 | --- | --- | --- |
@@ -97,6 +97,8 @@ Active normal
 - Recently active and user-protected workspaces receive a grace period.
 - Low-memory views may continue provider scripts and network activity. Suspension remains a future measured option and is not implemented by the current Balanced policy.
 - Disposed workspaces retain only minimal native metadata and, where a provider-specific policy makes it safe, one restricted local restore locator. AI Drawer does not cache prompts, responses, DOM, or conversation content.
+- If a persisted session cannot be safely read, AI Drawer blocks session writes and offers Retry, Exit, or **Back up and continue**. The latter moves the original local session to a timestamped recovery backup before a new session can be written; it does not silently replace it with an empty layout.
+- A provider request to open an allowed app or authentication popup receives one controlled, non-persisted native window sharing the same provider profile. Known purchase popups remain blocked; unrelated safe HTTPS links continue in the system browser without query strings or fragments.
 - `Low Memory`, `Balanced`, and `Fast Switching` modes will use measured live, suspended, and restoration budgets rather than one unqualified global number.
 - A released workspace must remain at least as identifiable and recoverable as an inactive Chrome tab; resource savings do not justify silently replacing it with an unrelated new context.
 
@@ -146,8 +148,7 @@ Provider compatibility contributions must include reproducible environment detai
 
 ## Roadmap
 
-1. Decide how corrupt, oversized, temporarily unavailable, or newer-schema session files are preserved and surfaced instead of silently becoming an empty layout.
-2. Complete the remaining M2.2 restart, encrypted-locator, provider-profile reset, renderer-specific recovery, popup, broader accessibility, and multi-workspace lifecycle verification.
+1. Complete the remaining M2.2 restart, encrypted-locator, provider-profile reset, renderer-specific recovery, popup, fresh-profile cleanup, broader accessibility, and multi-workspace lifecycle verification.
 3. Run the deferred live-view pressure comparison before enabling Low Memory or Fast Switching modes or claiming a capacity.
 4. Review safe restore patterns provider by provider; unsupported persisted patterns must continue to fail closed to provider home after restart.
 5. Complete the outstanding M0/M2 compatibility and Windows 10/11 evidence, then decide whether the M2 Gate permits entry into M3.

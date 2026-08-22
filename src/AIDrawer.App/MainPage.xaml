@@ -394,6 +394,55 @@
         </Grid>
 
         <Grid
+            x:Name="SessionRecoveryOverlay"
+            Grid.RowSpan="3"
+            Canvas.ZIndex="110"
+            Background="{ThemeResource PromptScrimBrush}"
+            Visibility="Collapsed">
+            <Border
+                Width="460"
+                MaxWidth="{Binding ActualWidth, ElementName=RootLayout}"
+                Margin="24"
+                Padding="24"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Background="{ThemeResource PromptSurfaceBrush}"
+                CornerRadius="16"
+                Shadow="{StaticResource FloatingSurfaceShadow}"
+                Translation="0,0,28">
+                <StackPanel Spacing="14">
+                    <TextBlock x:Name="SessionRecoveryTitle" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap" />
+                    <TextBlock
+                        x:Name="SessionRecoveryMessage"
+                        TextWrapping="Wrap"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock
+                        Text="Retry leaves the existing file untouched. Backup creates a local recovery copy before AI Drawer can write a new session."
+                        FontSize="12"
+                        TextWrapping="Wrap"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <StackPanel HorizontalAlignment="Right" Orientation="Horizontal" Spacing="8">
+                        <Button
+                            x:Name="SessionRecoveryExitButton"
+                            Style="{StaticResource AppSecondaryButtonStyle}"
+                            Content="Exit AI Drawer"
+                            Click="SessionRecoveryExitButton_Click" />
+                        <Button
+                            x:Name="SessionRecoveryRetryButton"
+                            Style="{StaticResource AppSecondaryButtonStyle}"
+                            Content="Retry"
+                            Click="SessionRecoveryRetryButton_Click" />
+                        <Button
+                            x:Name="SessionRecoveryBackupButton"
+                            Style="{StaticResource AppPrimaryButtonStyle}"
+                            Content="Back up and continue"
+                            Click="SessionRecoveryBackupButton_Click" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <Grid
             x:Name="PromptOverlay"
             Grid.RowSpan="3"
             Canvas.ZIndex="100"

@@ -7,6 +7,7 @@ namespace AIDrawer;
 
 internal sealed class WorkspaceSessionStore
 {
+    private const int MaximumSessionBytes = 1024 * 1024;
     private static readonly object StorageWriteQueueGate = new();
     private static Task StorageWriteTail = Task.CompletedTask;
     private static readonly string AppDataRoot = Path.Combine(
@@ -17,30 +18,38 @@ internal sealed class WorkspaceSessionStore
     private static readonly string SettingsPath = Path.Combine(AppDataRoot, "settings-v1.json");
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
-    internal async Task<RestoredSession> LoadSessionAsync()
+    private bool _sessionWritesBlocked;
+
+    internal async Task<SessionLoadResult> LoadSessionAsync()
     {
         try
         {
-            if (!File.Exists(SessionPath))
+            var json = await ReadSessionFileAsync();
+            if (json is null)
             {
-                return RestoredSession.Empty;
+                return SetSessionLoadResult(SessionLoadStatus.Missing, RestoredSession.Empty);
             }
 
-            if (new FileInfo(SessionPath).Length > 1024 * 1024)
-            {
-                return RestoredSession.Empty;
-            }
-
-            var json = await File.ReadAllTextAsync(SessionPath);
             var document = JsonSerializer.Deserialize<WorkspaceSession>(json, JsonOptions);
-            if (document is null || document.SchemaVersion != WorkspaceSession.CurrentSchemaVersion)
+            if (document is null)
             {
-                return RestoredSession.Empty;
+                return SetSessionLoadResult(SessionLoadStatus.Corrupt, RestoredSession.Empty);
+            }
+
+            if (document.SchemaVersion != WorkspaceSession.CurrentSchemaVersion)
+            {
+                return SetSessionLoadResult(
+                    document.SchemaVersion > WorkspaceSession.CurrentSchemaVersion
+                        ? SessionLoadStatus.NewerSchema
+                        : SessionLoadStatus.UnsupportedSchema,
+                    RestoredSession.Empty);
             }
 
             var restored = new List<RestoredWorkspace>();
             var restoredIds = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var workspace in document.Workspaces.Take(WorkspaceSession.MaximumWorkspaceCount))
+            var hadInvalidWorkspace = false;
+            var hadLocatorFailure = false;
+            foreach (var workspace in document.Workspaces ?? [])
             {
                 if (string.IsNullOrWhiteSpace(workspace.Id)
                     || workspace.Id.Length > 64
@@ -50,23 +59,71 @@ internal sealed class WorkspaceSessionStore
                     || workspace.ProviderId?.Length > 50
                     || workspace.ProtectedRestoreLocator?.Length > 8192)
                 {
-                    continue;
+                    hadInvalidWorkspace = true;
+                    break;
                 }
 
-                var locator = await UnprotectAsync(workspace.ProtectedRestoreLocator);
+                if (restored.Count >= WorkspaceSession.MaximumWorkspaceCount)
+                {
+                    hadInvalidWorkspace = true;
+                    break;
+                }
+
+                var locatorResult = await UnprotectAsync(workspace.ProtectedRestoreLocator);
+                if (locatorResult.Failed)
+                {
+                    hadLocatorFailure = true;
+                }
+
                 restored.Add(new RestoredWorkspace(
                     workspace.Id,
                     workspace.DisplayName,
                     workspace.ProviderId,
                     workspace.KeepActive,
-                    locator));
+                    locatorResult.Value));
             }
 
-            return new RestoredSession(document.ActiveWorkspaceId, restored);
+            var session = new RestoredSession(document.ActiveWorkspaceId, restored);
+            if (hadInvalidWorkspace)
+            {
+                return SetSessionLoadResult(SessionLoadStatus.Corrupt, session);
+            }
+
+            return SetSessionLoadResult(
+                hadLocatorFailure ? SessionLoadStatus.LocatorRecoveryRequired : SessionLoadStatus.Loaded,
+                session);
+        }
+        catch (SessionFileTooLargeException)
+        {
+            return SetSessionLoadResult(SessionLoadStatus.TooLarge, RestoredSession.Empty);
+        }
+        catch (JsonException)
+        {
+            return SetSessionLoadResult(SessionLoadStatus.Corrupt, RestoredSession.Empty);
+        }
+        catch (NotSupportedException)
+        {
+            return SetSessionLoadResult(SessionLoadStatus.Corrupt, RestoredSession.Empty);
+        }
+        catch (FileNotFoundException)
+        {
+            return SetSessionLoadResult(SessionLoadStatus.Missing, RestoredSession.Empty);
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return SetSessionLoadResult(SessionLoadStatus.Missing, RestoredSession.Empty);
+        }
+        catch (IOException)
+        {
+            return SetSessionLoadResult(SessionLoadStatus.TemporarilyUnavailable, RestoredSession.Empty);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return SetSessionLoadResult(SessionLoadStatus.TemporarilyUnavailable, RestoredSession.Empty);
         }
         catch
         {
-            return RestoredSession.Empty;
+            return SetSessionLoadResult(SessionLoadStatus.TemporarilyUnavailable, RestoredSession.Empty);
         }
     }
 
@@ -75,6 +132,11 @@ internal sealed class WorkspaceSessionStore
         string? activeWorkspaceId,
         bool restoreExactWorkspace)
     {
+        if (_sessionWritesBlocked)
+        {
+            return Task.FromException(new SessionWriteBlockedException());
+        }
+
         var workspaceStates = workspaces
             .Take(WorkspaceSession.MaximumWorkspaceCount)
             .Select(workspace => new SessionWorkspaceState(
@@ -162,6 +224,42 @@ internal sealed class WorkspaceSessionStore
         }
     }
 
+    internal async Task<SessionBackupResult> BackupBlockedSessionAsync()
+    {
+        if (!_sessionWritesBlocked)
+        {
+            return SessionBackupResult.NotRequired;
+        }
+
+        SessionBackupResult result = SessionBackupResult.Failed;
+        await EnqueueStorageWriteAsync(() =>
+        {
+            try
+            {
+                var backupPath = CreateBackupPath();
+                if (!IsSafeSessionBackupPath(backupPath) || !File.Exists(SessionPath))
+                {
+                    return Task.CompletedTask;
+                }
+
+                File.Move(SessionPath, backupPath, overwrite: false);
+                _sessionWritesBlocked = false;
+                result = SessionBackupResult.Created;
+            }
+            catch (IOException)
+            {
+                // Keep the write gate closed; the user can retry or exit without overwriting the source.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Keep the write gate closed; the user can retry or exit without overwriting the source.
+            }
+
+            return Task.CompletedTask;
+        });
+        return result;
+    }
+
     private static Task EnqueueStorageWriteAsync(Func<Task> writeAsync)
     {
         lock (StorageWriteQueueGate)
@@ -198,11 +296,35 @@ internal sealed class WorkspaceSessionStore
         return CryptographicBuffer.EncodeToBase64String(protectedBuffer);
     }
 
-    private static async Task<string?> UnprotectAsync(string? value)
+    private SessionLoadResult SetSessionLoadResult(SessionLoadStatus status, RestoredSession session)
+    {
+        _sessionWritesBlocked = status.RequiresExplicitRecovery();
+        return new SessionLoadResult(status, session);
+    }
+
+    private static async Task<string?> ReadSessionFileAsync()
+    {
+        await using var stream = new FileStream(
+            SessionPath,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 4096,
+            useAsync: true);
+        if (stream.Length > MaximumSessionBytes)
+        {
+            throw new SessionFileTooLargeException();
+        }
+
+        using var reader = new StreamReader(stream);
+        return await reader.ReadToEndAsync();
+    }
+
+    private static async Task<ProtectedValueLoadResult> UnprotectAsync(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
-            return null;
+            return new ProtectedValueLoadResult(null, false);
         }
 
         try
@@ -210,12 +332,32 @@ internal sealed class WorkspaceSessionStore
             var provider = new DataProtectionProvider();
             var protectedBuffer = CryptographicBuffer.DecodeFromBase64String(value);
             var clearBuffer = await provider.UnprotectAsync(protectedBuffer);
-            return CryptographicBuffer.ConvertBinaryToString(BinaryStringEncoding.Utf8, clearBuffer);
+            return new ProtectedValueLoadResult(
+                CryptographicBuffer.ConvertBinaryToString(BinaryStringEncoding.Utf8, clearBuffer),
+                false);
         }
         catch
         {
-            return null;
+            return new ProtectedValueLoadResult(null, true);
         }
+    }
+
+    private static string CreateBackupPath()
+    {
+        var stamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmssfff");
+        return Path.Combine(AppDataRoot, $"workspaces-v1.{stamp}.recovery-backup.json");
+    }
+
+    private static bool IsSafeSessionBackupPath(string backupPath)
+    {
+        var root = Path.GetFullPath(AppDataRoot).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            + Path.DirectorySeparatorChar;
+        var session = Path.GetFullPath(SessionPath);
+        var candidate = Path.GetFullPath(backupPath);
+        return string.Equals(Path.GetDirectoryName(candidate), root.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)
+            && candidate.StartsWith(root, StringComparison.OrdinalIgnoreCase)
+            && candidate.EndsWith(".recovery-backup.json", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(Path.GetDirectoryName(session), Path.GetDirectoryName(candidate), StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task WriteAtomicallyAsync(string path, string content)
@@ -246,3 +388,43 @@ internal sealed record RestoredWorkspace(
     string? ProviderId,
     bool KeepActive,
     string? RestoreLocator);
+
+internal enum SessionLoadStatus
+{
+    Missing,
+    Loaded,
+    LocatorRecoveryRequired,
+    Corrupt,
+    TooLarge,
+    UnsupportedSchema,
+    NewerSchema,
+    TemporarilyUnavailable
+}
+
+internal static class SessionLoadStatusExtensions
+{
+    internal static bool RequiresExplicitRecovery(this SessionLoadStatus status) => status is not SessionLoadStatus.Missing and not SessionLoadStatus.Loaded;
+}
+
+internal sealed record SessionLoadResult(SessionLoadStatus Status, RestoredSession Session);
+
+internal enum SessionBackupResult
+{
+    Created,
+    NotRequired,
+    Failed
+}
+
+internal sealed class SessionWriteBlockedException : InvalidOperationException
+{
+    internal SessionWriteBlockedException()
+        : base("Session writes are blocked until the existing session file is backed up.")
+    {
+    }
+}
+
+internal sealed class SessionFileTooLargeException : IOException
+{
+}
+
+internal sealed record ProtectedValueLoadResult(string? Value, bool Failed);

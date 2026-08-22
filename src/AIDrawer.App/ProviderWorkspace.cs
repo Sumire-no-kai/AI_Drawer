@@ -13,6 +13,7 @@ internal sealed class ProviderWorkspace : IDisposable
     private readonly HashSet<ulong> _pendingNavigations = [];
     private readonly HashSet<long> _pendingPermissionRequests = [];
     private readonly Dictionary<CoreWebView2DownloadOperation, TypedEventHandler<CoreWebView2DownloadOperation, object>> _activeDownloads = [];
+    private readonly HashSet<ProviderPopupWindow> _popupWindows = [];
     private WebView2? _webView;
     private Uri? _restoreLocator;
     private Uri? _inMemoryNavigationTarget;
@@ -24,6 +25,8 @@ internal sealed class ProviderWorkspace : IDisposable
     private bool _shouldExplainHomeFallback;
     private bool _isCreatingWebView;
     private bool _disposed;
+    private int _renderRecoveryAttempts;
+    private int _unresponsiveFailureCount;
 
     internal ProviderWorkspace(
         string workspaceId,
@@ -51,6 +54,8 @@ internal sealed class ProviderWorkspace : IDisposable
 
     internal event EventHandler<string>? SuccessfulOpen;
 
+    internal event EventHandler<WorkspaceProcessFailureEventArgs>? ProcessFailure;
+
     internal ProviderDefinition Provider { get; }
 
     internal string WorkspaceId { get; }
@@ -62,7 +67,8 @@ internal sealed class ProviderWorkspace : IDisposable
     internal bool IsOperationProtected => _isCreatingWebView
         || _pendingNavigations.Count > 0
         || _pendingPermissionRequests.Count > 0
-        || _activeDownloads.Count > 0;
+        || _activeDownloads.Count > 0
+        || _popupWindows.Count > 0;
 
     internal Uri? PromoteCommittedRestoreLocator()
     {
@@ -276,7 +282,7 @@ internal sealed class ProviderWorkspace : IDisposable
                 return false;
             }
 
-            Configure(view.CoreWebView2);
+            Configure(view.CoreWebView2, environment);
 
             if (navigationTarget is not null)
             {
@@ -305,7 +311,7 @@ internal sealed class ProviderWorkspace : IDisposable
         }
     }
 
-    private void Configure(CoreWebView2 core)
+    private void Configure(CoreWebView2 core, CoreWebView2Environment environment)
     {
         core.Settings.AreDevToolsEnabled = false;
         core.Settings.AreHostObjectsAllowed = false;
@@ -359,20 +365,41 @@ internal sealed class ProviderWorkspace : IDisposable
                 return;
             }
 
-            args.Handled = true;
-            if (Provider.IsKnownPurchaseUri(args.Uri))
+            switch (Provider.ClassifyPopup(args.Uri))
             {
-                RaisePurchaseState();
-                return;
-            }
+                case PopupDisposition.BlockPurchase:
+                    args.Handled = true;
+                    RaisePurchaseState();
+                    return;
 
-            if (Provider.IsAllowedEmbeddedUri(args.Uri))
-            {
-                core.Navigate(args.Uri);
-                return;
-            }
+                case PopupDisposition.OpenControlledWindow:
+                    if (_popupWindows.Count > 0)
+                    {
+                        args.Handled = true;
+                        RaiseState(
+                            "Additional provider popup blocked",
+                            "Close the existing provider popup before opening another one from this workspace.",
+                            InfoBarSeverity.Warning);
+                        return;
+                    }
 
-            _ = OpenExternalUriAsync(core, args.Uri);
+                    var deferral = args.GetDeferral();
+                    _ = OpenProviderPopupAsync(core, environment, args, deferral);
+                    return;
+
+                case PopupDisposition.OpenExternal:
+                    args.Handled = true;
+                    _ = OpenExternalUriAsync(core, args.Uri);
+                    return;
+
+                default:
+                    args.Handled = true;
+                    RaiseState(
+                        "Unsupported popup blocked",
+                        "AI Drawer only opens safe HTTPS provider popups or safe external links in your system browser.",
+                        InfoBarSeverity.Warning);
+                    return;
+            }
         };
 
         core.PermissionRequested += async (_, args) =>
@@ -442,6 +469,8 @@ internal sealed class ProviderWorkspace : IDisposable
             if (args.IsSuccess)
             {
                 _hasCompletedInitialNavigation = true;
+                _renderRecoveryAttempts = 0;
+                _unresponsiveFailureCount = 0;
                 CaptureNavigationTargets(core.Source);
                 if (!_hasCountedCurrentView)
                 {
@@ -473,18 +502,145 @@ internal sealed class ProviderWorkspace : IDisposable
                 requiresRecovery: true);
         };
 
-        core.ProcessFailed += (_, _) =>
+        core.ProcessFailed += (_, args) => HandleProcessFailed(core, args);
+    }
+
+    private async Task OpenProviderPopupAsync(
+        CoreWebView2 sourceCore,
+        CoreWebView2Environment environment,
+        CoreWebView2NewWindowRequestedEventArgs args,
+        IDisposable deferral)
+    {
+        try
         {
-            if (IsCurrent(core))
+            var popup = await ProviderPopupWindow.CreateAsync(
+                environment,
+                Provider,
+                (title, message, severity) => RaiseState(title, message, severity),
+                closed => _popupWindows.Remove(closed));
+            if (popup is null || !IsCurrent(sourceCore))
             {
-                _pendingNavigations.Clear();
+                popup?.Dispose();
+                args.Handled = true;
+                if (IsCurrent(sourceCore))
+                {
+                    RaiseState(
+                        "Provider popup could not open",
+                        "The active workspace was kept in place. You can retry the provider action or use the system browser.",
+                        InfoBarSeverity.Warning);
+                }
+
+                return;
+            }
+
+            _popupWindows.Add(popup);
+            args.NewWindow = popup.CoreWebView;
+        }
+        catch
+        {
+            args.Handled = true;
+            if (IsCurrent(sourceCore))
+            {
                 RaiseState(
-                    $"{Provider.DisplayName} stopped responding",
-                    "You can reload or restart this workspace. Its local profile is preserved.",
+                    "Provider popup could not open",
+                    "The active workspace was kept in place. You can retry the provider action or use the system browser.",
+                    InfoBarSeverity.Warning);
+            }
+        }
+        finally
+        {
+            deferral.Dispose();
+        }
+    }
+
+    private void HandleProcessFailed(CoreWebView2 core, CoreWebView2ProcessFailedEventArgs args)
+    {
+        if (!IsCurrent(core))
+        {
+            return;
+        }
+
+        _pendingNavigations.Clear();
+        if (args.Reason == CoreWebView2ProcessFailedReason.OutOfMemory)
+        {
+            RaiseState(
+                $"{Provider.DisplayName} ran out of memory",
+                "AI Drawer will release inactive workspaces, but will not reload this page in a loop. Reopen it when memory pressure has eased.",
+                InfoBarSeverity.Error,
+                requiresRecovery: true);
+            ProcessFailure?.Invoke(this, new WorkspaceProcessFailureEventArgs(WorkspaceId, WorkspaceProcessFailureKind.OutOfMemory));
+            return;
+        }
+
+        switch (args.ProcessFailedKind)
+        {
+            case CoreWebView2ProcessFailedKind.RenderProcessUnresponsive:
+                _unresponsiveFailureCount++;
+                RaiseState(
+                    _unresponsiveFailureCount == 1
+                        ? $"{Provider.DisplayName} is taking longer than expected"
+                        : $"{Provider.DisplayName} is still not responding",
+                    _unresponsiveFailureCount == 1
+                        ? "AI Drawer is keeping the workspace open so the provider can recover. Reload or restart only if it does not resume."
+                        : "The provider did not recover after waiting. Reload or restart this workspace; its local profile is preserved.",
+                    InfoBarSeverity.Warning,
+                    requiresRecovery: _unresponsiveFailureCount > 1);
+                return;
+
+            case CoreWebView2ProcessFailedKind.RenderProcessExited:
+                _unresponsiveFailureCount = 0;
+                if (_renderRecoveryAttempts++ == 0 && Reload())
+                {
+                    RaiseState(
+                        $"Reloading {Provider.DisplayName}",
+                        "The page renderer exited. AI Drawer is attempting one bounded reload without changing local provider data.",
+                        InfoBarSeverity.Warning,
+                        activity: WorkspaceActivity.Opening);
+                    return;
+                }
+
+                RaiseState(
+                    $"Restarting {Provider.DisplayName}",
+                    "The renderer did not recover after its bounded reload. AI Drawer will recreate this workspace with the same local provider profile.",
+                    InfoBarSeverity.Warning,
+                    activity: WorkspaceActivity.Opening);
+                ProcessFailure?.Invoke(this, new WorkspaceProcessFailureEventArgs(WorkspaceId, WorkspaceProcessFailureKind.RendererExit));
+                return;
+
+            case CoreWebView2ProcessFailedKind.BrowserProcessExited:
+                RaiseState(
+                    "Embedded browser process exited",
+                    "AI Drawer will recreate affected active workspaces with their existing local provider profiles.",
+                    InfoBarSeverity.Warning,
+                    activity: WorkspaceActivity.Opening);
+                ProcessFailure?.Invoke(this, new WorkspaceProcessFailureEventArgs(WorkspaceId, WorkspaceProcessFailureKind.BrowserExit));
+                return;
+
+            case CoreWebView2ProcessFailedKind.FrameRenderProcessExited:
+                RaiseState(
+                    $"{Provider.DisplayName} content frame exited",
+                    "The provider may recover this frame itself. Reload only if the page does not recover.",
+                    InfoBarSeverity.Warning,
+                    requiresRecovery: true);
+                return;
+
+            case CoreWebView2ProcessFailedKind.GpuProcessExited:
+            case CoreWebView2ProcessFailedKind.UtilityProcessExited:
+                RaiseState(
+                    $"{Provider.DisplayName} browser helper exited",
+                    "WebView2 may recover this helper automatically. Reload or restart the workspace only if the provider page remains unusable.",
+                    InfoBarSeverity.Warning,
+                    requiresRecovery: true);
+                return;
+
+            default:
+                RaiseState(
+                    $"{Provider.DisplayName} embedded browser failed",
+                    "Reload or restart this workspace. Its local profile is preserved.",
                     InfoBarSeverity.Error,
                     requiresRecovery: true);
-            }
-        };
+                return;
+        }
     }
 
     private async Task OpenExternalUriAsync(CoreWebView2 sourceCore, string? rawUri)
@@ -666,6 +822,11 @@ internal sealed class ProviderWorkspace : IDisposable
     private void CloseWebView()
     {
         _viewGeneration++;
+        foreach (var popup in _popupWindows.ToArray())
+        {
+            popup.Dispose();
+        }
+
         foreach (var (download, stateChanged) in _activeDownloads)
         {
             try
@@ -720,6 +881,17 @@ internal sealed record PermissionRequest(
     string Origin);
 
 internal sealed record PermissionDecision(bool Allowed, bool Remember);
+
+internal enum WorkspaceProcessFailureKind
+{
+    RendererExit,
+    BrowserExit,
+    OutOfMemory
+}
+
+internal sealed record WorkspaceProcessFailureEventArgs(
+    string WorkspaceId,
+    WorkspaceProcessFailureKind Kind);
 
 internal sealed record RestoreLocatorChangedEventArgs(string WorkspaceId, Uri? RestoreLocator);
 

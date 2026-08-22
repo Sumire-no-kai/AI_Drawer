@@ -2,6 +2,22 @@
 
 This is the durable development record for implementation decisions, verified behavior, limitations, and open work. It is not a release changelog. Planned behavior must not be presented as shipped or provider-compatible behavior.
 
+## 2026-08-22 — Recoverable session, popup, failure, and lab cleanup hardening
+
+### Implemented behavior
+
+- Replaced the session store's ambiguous empty-load fallback with explicit outcomes for missing, corrupt, oversized, unsupported/newer-schema, temporarily unavailable, and encrypted-locator recovery cases. Any non-safe outcome now blocks session writes.
+- Added a startup recovery surface. It allows a safe retry, explicit exit, or an explicit **Back up and continue** path. The backup moves the original `workspaces-v1.json` to a timestamped local recovery file before the write gate opens; failed backup keeps the gate closed. This preserves the existing file instead of silently replacing it with an empty or lossy session.
+- Added process-failure differentiation: the first renderer-unresponsive event waits without destroying the page; a renderer exit gets one bounded reload then same-profile recreation; a browser-process exit resets the shared environment and recreates the active workspace while leaving inactive workspaces recoverable; out-of-memory releases inactive live views without an automatic reload loop; frame/GPU/utility failures offer non-destructive recovery guidance.
+- Replaced the previous `NewWindowRequested` behavior that navigated the active WebView in place. Allowed provider/authentication origins now open a single controlled, non-persisted native popup using the same provider profile; purchase popups are blocked and unrelated safe HTTPS popups use the system browser without query/fragment values. This is implementation, not provider-specific OAuth verification.
+- Compatibility Lab `Fresh disposable` profiles are now deleted after the WebView is closed and its processes have a short release window. Cleanup retries only a generated `fresh-*` path underneath the current test root, refuses paths outside that root or through reparse points, and records a deferred cleanup rather than deleting an unsafe target.
+- Updated `CONTEXT.md` with the recovery-blocked session and controlled provider-popup terms and their invariants. The `MainPage` dual view/selection state was deliberately not mechanically split: no small extraction removes its real UI coordination role, and a `WorkspaceCollection` refactor remains a post-runtime-gate decision rather than speculative churn.
+
+### Verification boundary
+
+- Static diff/format checks were run. The repository-local SDK at `D:\DevTools\dotnet\dotnet.exe` built the unpackaged x64 Debug production project with zero warnings and zero errors, and the framework-free Core harness completed all nine checks. The unpackaged x64 Debug Compatibility Lab also compiled; NuGet emitted `NU1900` because this restricted environment could not reach its vulnerability-data index, so it is not a clean dependency-audit result. No SDK, package, app, Start-menu registration, or provider profile was installed or changed.
+- Runtime verification remains required for every new recovery path: corrupt/locked/oversized/newer-schema session files; DPAPI locator failure; renderer/browser/OOM event handling; provider sign-in popup return; external/purchase popup policy; and fresh-profile deletion after real WebView2 process exit. No provider compatibility status changed.
+
 ## 2026-08-22 — Full code review and M2.2 correctness hardening
 
 ### Review scope and changes
