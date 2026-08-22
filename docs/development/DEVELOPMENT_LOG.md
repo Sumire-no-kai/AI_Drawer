@@ -2,6 +2,20 @@
 
 This is the durable development record for implementation decisions, verified behavior, limitations, and open work. It is not a release changelog. Planned behavior must not be presented as shipped or provider-compatible behavior.
 
+## 2026-08-22 — Isolated x64 M2.2 runtime validation
+
+### Verified behavior
+
+- Added a Debug-only `AI_DRAWER_TEST_DATA_ROOT` override so direct-run tests use a generated temporary AI Drawer data root instead of `%LocalAppData%`. Release builds ignore the variable. The session store and WebView2 profile root share that one test root, preventing a test from changing a regular user's native session or provider profile.
+- Added a framework-free application recovery harness. Seven checks passed: corrupt session write blocking and explicit backup; oversized session rejection; newer-schema rejection; invalid DPAPI locator metadata preservation; exclusive-file lock handling; 101-item persistence truncation to the configured 100-workspace limit; and the actual native recovery UI's **Back up and continue** path.
+- Direct unpackaged x64 UI automation verified first-run Welcome `Continue`, Settings, the BMC support entry, reopened Welcome `Skip`, and native workspace creation/close. The separate webview-init run created an isolated ChatGPT workspace and its dedicated WebView2 profile without login or provider interaction.
+- In that generated no-account profile, four matched WebView2 child processes were deliberately terminated. The native application window and ChatGPT workspace identity survived, then a same-profile WebView2 child process was recreated. No unrelated browser or WebView2 process was selected.
+
+### Verification boundary
+
+- All application runs were direct from the repository's unpackaged Debug output. No MSIX/package registration, installation, Start-menu entry, provider login, prompt, response, cookie, credential, or payment interaction occurred. Temporary test roots were removed after each completed run.
+- This is not a provider compatibility result. Real encrypted-locator restart; renderer-unresponsive, OOM, GPU/utility, and multi-workspace fault categories; controlled authentication popup return; external/purchase popup policy; provider-profile reset; fresh-profile deletion after a real WebView2 child exit; measurable live-view pressure; accessibility breadth; x86; ARM64 device; and Windows 10/11 matrix validation remain open.
+
 ## 2026-08-22 — Windows on ARM64 build and publish path
 
 ### Implemented behavior

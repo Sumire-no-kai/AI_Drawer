@@ -10,9 +10,7 @@ internal sealed class WorkspaceSessionStore
     private const int MaximumSessionBytes = 1024 * 1024;
     private static readonly object StorageWriteQueueGate = new();
     private static Task StorageWriteTail = Task.CompletedTask;
-    private static readonly string AppDataRoot = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "AI Drawer");
+    private static readonly string AppDataRoot = ApplicationDataPaths.AppDataRoot;
 
     private static readonly string SessionPath = Path.Combine(AppDataRoot, "workspaces-v1.json");
     private static readonly string SettingsPath = Path.Combine(AppDataRoot, "settings-v1.json");

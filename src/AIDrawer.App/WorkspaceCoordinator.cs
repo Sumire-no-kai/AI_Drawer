@@ -8,8 +8,7 @@ namespace AIDrawer;
 internal sealed class WorkspaceCoordinator : IDisposable
 {
     private static readonly string UserDataRoot = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "AI Drawer",
+        ApplicationDataPaths.AppDataRoot,
         "WebView2");
 
     private readonly Panel _host;
