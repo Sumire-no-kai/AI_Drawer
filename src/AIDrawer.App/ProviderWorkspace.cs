@@ -334,7 +334,8 @@ internal sealed class ProviderWorkspace : IDisposable
                 return;
             }
 
-            switch (Provider.ClassifyTopLevelNavigation(args.Uri))
+            var disposition = Provider.ClassifyTopLevelNavigation(args.Uri);
+            switch (disposition)
             {
                 case NavigationDisposition.BlockPurchase:
                     args.Cancel = true;
@@ -358,18 +359,42 @@ internal sealed class ProviderWorkspace : IDisposable
             _pendingNavigations.Add(args.NavigationId);
 
             RaiseState(
-                _hasCompletedInitialNavigation ? $"Updating {Provider.DisplayName}" : $"Opening {Provider.DisplayName}",
-                "Keeping the AI Drawer navigation available while the provider page changes.",
+                disposition == NavigationDisposition.EmbedAuthentication
+                    ? $"Continuing {Provider.DisplayName} sign-in"
+                    : _hasCompletedInitialNavigation ? $"Updating {Provider.DisplayName}" : $"Opening {Provider.DisplayName}",
+                disposition == NavigationDisposition.EmbedAuthentication
+                    ? "This is an approved authentication origin required by the provider."
+                    : "Keeping the AI Drawer navigation available while the provider page changes.",
                 InfoBarSeverity.Informational,
                 activity: _hasCompletedInitialNavigation ? WorkspaceActivity.Navigating : WorkspaceActivity.Opening);
         };
 
-        core.FrameNavigationStarting += (_, args) =>
+        core.FrameNavigationStarting += (sender, args) =>
         {
-            if (IsCurrent(core) && Provider.IsKnownPurchaseUri(args.Uri))
+            if (!IsCurrent(core) || string.Equals(args.Uri, "about:blank", StringComparison.OrdinalIgnoreCase))
             {
-                args.Cancel = true;
-                RaisePurchaseState();
+                return;
+            }
+
+            switch (Provider.ClassifyTopLevelNavigation(args.Uri))
+            {
+                case NavigationDisposition.BlockPurchase:
+                    args.Cancel = true;
+                    RaisePurchaseState();
+                    return;
+
+                case NavigationDisposition.OpenExternal:
+                    args.Cancel = true;
+                    _ = OpenExternalUriAsync(core, args.Uri);
+                    return;
+
+                case NavigationDisposition.BlockUnsupported:
+                    args.Cancel = true;
+                    RaiseState(
+                        "Unsupported embedded navigation blocked",
+                        "AI Drawer only embeds reviewed HTTPS provider and authentication origins.",
+                        InfoBarSeverity.Warning);
+                    return;
             }
         };
 
@@ -395,14 +420,16 @@ internal sealed class ProviderWorkspace : IDisposable
                 return;
             }
 
-            switch (Provider.ClassifyPopup(args.Uri))
+            var popupDisposition = Provider.ClassifyPopup(args.Uri);
+            switch (popupDisposition)
             {
                 case PopupDisposition.BlockPurchase:
                     args.Handled = true;
                     RaisePurchaseState();
                     return;
 
-                case PopupDisposition.OpenControlledWindow:
+                case PopupDisposition.OpenControlledProviderWindow:
+                case PopupDisposition.OpenControlledAuthenticationWindow:
                     if (_popupWindows.Count > 0)
                     {
                         args.Handled = true;
@@ -414,7 +441,10 @@ internal sealed class ProviderWorkspace : IDisposable
                     }
 
                     var deferral = args.GetDeferral();
-                    _ = OpenProviderPopupAsync(core, environment, args, deferral);
+                    var popupKind = popupDisposition == PopupDisposition.OpenControlledAuthenticationWindow
+                        ? ControlledPopupKind.Authentication
+                        : ControlledPopupKind.ProviderApplication;
+                    _ = OpenProviderPopupAsync(core, environment, args, deferral, popupKind);
                     return;
 
                 case PopupDisposition.OpenExternal:
@@ -541,13 +571,15 @@ internal sealed class ProviderWorkspace : IDisposable
         CoreWebView2 sourceCore,
         CoreWebView2Environment environment,
         CoreWebView2NewWindowRequestedEventArgs args,
-        IDisposable deferral)
+        IDisposable deferral,
+        ControlledPopupKind popupKind)
     {
         try
         {
             var popup = await ProviderPopupWindow.CreateAsync(
                 environment,
                 Provider,
+                popupKind,
                 (title, message, severity) => RaiseState(title, message, severity),
                 closed =>
                 {

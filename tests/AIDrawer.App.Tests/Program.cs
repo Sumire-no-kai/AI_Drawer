@@ -195,13 +195,16 @@ try
     await CheckAsync("navigation policy preserves reviewed origins and fails closed", () =>
     {
         var chatGpt = ProviderCatalog.AvailableProviders.Single(candidate => candidate.Id == "chatgpt");
-        Equal(NavigationDisposition.AllowEmbedded, chatGpt.ClassifyTopLevelNavigation("https://chatgpt.com/c/opaque-id"));
-        Equal(NavigationDisposition.AllowEmbedded, chatGpt.ClassifyTopLevelNavigation("https://auth.openai.com/authorize"));
+        Equal(NavigationDisposition.EmbedProviderApplication, chatGpt.ClassifyTopLevelNavigation("https://chatgpt.com/c/opaque-id"));
+        Equal(NavigationDisposition.EmbedAuthentication, chatGpt.ClassifyTopLevelNavigation("https://auth.openai.com/authorize"));
+        True(chatGpt.IsAuthenticationUri("https://auth.openai.com/authorize"));
+        False(chatGpt.IsAuthenticationUri("https://chatgpt.com/c/opaque-id"));
         Equal(NavigationDisposition.OpenExternal, chatGpt.ClassifyTopLevelNavigation("https://chatgpt.com.evil.example/path?opaque=secret"));
         Equal(NavigationDisposition.BlockUnsupported, chatGpt.ClassifyTopLevelNavigation("https://user@chatgpt.com/"));
         Equal(NavigationDisposition.BlockUnsupported, chatGpt.ClassifyTopLevelNavigation("https://chatgpt.com:444/"));
         Equal(NavigationDisposition.BlockUnsupported, chatGpt.ClassifyTopLevelNavigation("http://chatgpt.com/"));
-        Equal(PopupDisposition.OpenControlledWindow, chatGpt.ClassifyPopup("https://auth.openai.com/authorize"));
+        Equal(PopupDisposition.OpenControlledProviderWindow, chatGpt.ClassifyPopup("https://chatgpt.com/c/opaque-id"));
+        Equal(PopupDisposition.OpenControlledAuthenticationWindow, chatGpt.ClassifyPopup("https://auth.openai.com/authorize"));
         Equal(PopupDisposition.OpenExternal, chatGpt.ClassifyPopup("https://example.com/path?opaque=secret#fragment"));
         Equal(PopupDisposition.BlockUnsupported, chatGpt.ClassifyPopup("javascript:alert(1)"));
         Equal("https://example.com/path", chatGpt.CreateSafeExternalUri("https://example.com/path?opaque=secret#fragment")?.AbsoluteUri.TrimEnd('/'));
@@ -213,6 +216,7 @@ try
         var gemini = ProviderCatalog.AvailableProviders.Single(candidate => candidate.Id == "gemini");
         Equal(PopupDisposition.BlockPurchase, gemini.ClassifyPopup("https://gemini.google.com/upgrade?opaque=secret"));
         True(gemini.IsKnownPurchaseUri("https://pay.google.com/checkout"));
+        False(gemini.IsKnownPurchaseUri("http://pay.google.com/checkout"));
         return Task.CompletedTask;
     });
 

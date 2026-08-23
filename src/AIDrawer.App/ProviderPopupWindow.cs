@@ -22,13 +22,16 @@ internal sealed class ProviderPopupWindow : IDisposable
 
     private ProviderPopupWindow(
         ProviderDefinition provider,
+        ControlledPopupKind popupKind,
         Action<string, string, InfoBarSeverity> reportState,
         Action<ProviderPopupWindow> closed)
     {
         _provider = provider;
         _reportState = reportState;
         _closed = closed;
-        _window.Title = $"{provider.DisplayName} sign-in";
+        _window.Title = popupKind == ControlledPopupKind.Authentication
+            ? $"{provider.DisplayName} sign-in"
+            : provider.DisplayName;
         _window.Content = _webView;
         _window.AppWindow.Resize(new SizeInt32(560, 720));
         _window.AppWindow.Closing += Window_Closing;
@@ -40,10 +43,11 @@ internal sealed class ProviderPopupWindow : IDisposable
     internal static async Task<ProviderPopupWindow?> CreateAsync(
         CoreWebView2Environment environment,
         ProviderDefinition provider,
+        ControlledPopupKind popupKind,
         Action<string, string, InfoBarSeverity> reportState,
         Action<ProviderPopupWindow> closed)
     {
-        var popup = new ProviderPopupWindow(provider, reportState, closed);
+        var popup = new ProviderPopupWindow(provider, popupKind, reportState, closed);
         try
         {
             var controllerOptions = environment.CreateCoreWebView2ControllerOptions();
@@ -70,14 +74,22 @@ internal sealed class ProviderPopupWindow : IDisposable
 
         core.NavigationStarting += (sender, args) =>
         {
+            if (_disposed)
+            {
+                args.Cancel = true;
+                return;
+            }
+
+            if (string.Equals(args.Uri, "about:blank", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
             switch (_provider.ClassifyTopLevelNavigation(args.Uri))
             {
                 case NavigationDisposition.BlockPurchase:
                     args.Cancel = true;
-                    _reportState(
-                        "Subscription opens on the provider's website",
-                        "AI Drawer does not provide or process subscriptions. Purchases stay with the provider.",
-                        InfoBarSeverity.Warning);
+                    ReportPurchaseBlocked();
                     return;
 
                 case NavigationDisposition.OpenExternal:
@@ -95,22 +107,92 @@ internal sealed class ProviderPopupWindow : IDisposable
             }
         };
 
+        core.FrameNavigationStarting += (sender, args) =>
+        {
+            if (_disposed)
+            {
+                args.Cancel = true;
+                return;
+            }
+
+            if (string.Equals(args.Uri, "about:blank", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            switch (_provider.ClassifyTopLevelNavigation(args.Uri))
+            {
+                case NavigationDisposition.BlockPurchase:
+                    args.Cancel = true;
+                    ReportPurchaseBlocked();
+                    return;
+
+                case NavigationDisposition.OpenExternal:
+                    args.Cancel = true;
+                    _ = OpenExternalUriAsync(args.Uri);
+                    return;
+
+                case NavigationDisposition.BlockUnsupported:
+                    args.Cancel = true;
+                    _reportState(
+                        "Unsupported embedded navigation blocked",
+                        "AI Drawer only embeds reviewed HTTPS provider and authentication origins.",
+                        InfoBarSeverity.Warning);
+                    return;
+            }
+        };
+
         core.ServerCertificateErrorDetected += (_, args) =>
         {
             args.Action = CoreWebView2ServerCertificateErrorAction.Cancel;
+            if (_disposed)
+            {
+                return;
+            }
+
             _reportState(
                 "Secure connection blocked",
                 $"Windows could not verify the certificate for {_provider.DisplayName}. AI Drawer blocked this connection.",
                 InfoBarSeverity.Error);
         };
 
-        core.NewWindowRequested += (_, args) =>
+        core.NewWindowRequested += (sender, args) =>
         {
-            args.Handled = true;
-            _reportState(
-                "Additional provider popup blocked",
-                "AI Drawer keeps one controlled provider popup at a time. Return to the provider page or use the system browser for unrelated links.",
-                InfoBarSeverity.Warning);
+            if (_disposed)
+            {
+                args.Handled = true;
+                return;
+            }
+
+            switch (_provider.ClassifyPopup(args.Uri))
+            {
+                case PopupDisposition.BlockPurchase:
+                    args.Handled = true;
+                    ReportPurchaseBlocked();
+                    return;
+
+                case PopupDisposition.OpenExternal:
+                    args.Handled = true;
+                    _ = OpenExternalUriAsync(args.Uri);
+                    return;
+
+                case PopupDisposition.OpenControlledProviderWindow:
+                case PopupDisposition.OpenControlledAuthenticationWindow:
+                    args.Handled = true;
+                    _reportState(
+                        "Additional provider popup blocked",
+                        "AI Drawer keeps one controlled provider popup at a time. Return to the provider page or use the system browser for unrelated links.",
+                        InfoBarSeverity.Warning);
+                    return;
+
+                default:
+                    args.Handled = true;
+                    _reportState(
+                        "Unsupported popup blocked",
+                        "AI Drawer only opens safe HTTPS external links in the system browser.",
+                        InfoBarSeverity.Warning);
+                    return;
+            }
         };
 
         core.PermissionRequested += (_, args) =>
@@ -144,6 +226,11 @@ internal sealed class ProviderPopupWindow : IDisposable
         }
     }
 
+    private void ReportPurchaseBlocked() => _reportState(
+        "Subscription opens on the provider's website",
+        "AI Drawer does not provide or process subscriptions. Purchases stay with the provider.",
+        InfoBarSeverity.Warning);
+
     private void Window_Closing(AppWindow sender, AppWindowClosingEventArgs args) => Dispose();
 
     public void Dispose()
@@ -166,4 +253,10 @@ internal sealed class ProviderPopupWindow : IDisposable
 
         _closed(this);
     }
+}
+
+internal enum ControlledPopupKind
+{
+    ProviderApplication,
+    Authentication
 }
