@@ -192,9 +192,15 @@ try
         }
     });
 
-    await CheckAsync("popup policy preserves provider auth and strips unrelated external parameters", () =>
+    await CheckAsync("navigation policy preserves reviewed origins and fails closed", () =>
     {
         var chatGpt = ProviderCatalog.AvailableProviders.Single(candidate => candidate.Id == "chatgpt");
+        Equal(NavigationDisposition.AllowEmbedded, chatGpt.ClassifyTopLevelNavigation("https://chatgpt.com/c/opaque-id"));
+        Equal(NavigationDisposition.AllowEmbedded, chatGpt.ClassifyTopLevelNavigation("https://auth.openai.com/authorize"));
+        Equal(NavigationDisposition.OpenExternal, chatGpt.ClassifyTopLevelNavigation("https://chatgpt.com.evil.example/path?opaque=secret"));
+        Equal(NavigationDisposition.BlockUnsupported, chatGpt.ClassifyTopLevelNavigation("https://user@chatgpt.com/"));
+        Equal(NavigationDisposition.BlockUnsupported, chatGpt.ClassifyTopLevelNavigation("https://chatgpt.com:444/"));
+        Equal(NavigationDisposition.BlockUnsupported, chatGpt.ClassifyTopLevelNavigation("http://chatgpt.com/"));
         Equal(PopupDisposition.OpenControlledWindow, chatGpt.ClassifyPopup("https://auth.openai.com/authorize"));
         Equal(PopupDisposition.OpenExternal, chatGpt.ClassifyPopup("https://example.com/path?opaque=secret#fragment"));
         Equal(PopupDisposition.BlockUnsupported, chatGpt.ClassifyPopup("javascript:alert(1)"));

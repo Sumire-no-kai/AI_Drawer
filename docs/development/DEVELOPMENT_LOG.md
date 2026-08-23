@@ -2,6 +2,22 @@
 
 This is the durable development record for implementation decisions, verified behavior, limitations, and open work. It is not a release changelog. Planned behavior must not be presented as shipped or provider-compatible behavior.
 
+## 2026-08-23 — M3 navigation-security foundation
+
+### Stage boundary
+
+- M3 development began with the user's explicit decision to defer the M2 tests that cannot currently be completed. This does not mark the M2 Gate as passed and does not change any provider compatibility status.
+
+### Implemented behavior
+
+- Main workspaces and controlled provider popups now use one typed top-level navigation classification for reviewed embedded origins, safe external HTTPS handoff, known purchase blocking, and unsupported navigation. Parsed HTTPS origin validation continues to reject credentials and custom ports and uses exact domain or subdomain boundaries rather than substring matching.
+- Main and controlled-popup WebViews explicitly cancel certificate-error navigation. The native state reports the failure without recording the request URL, certificate, credentials, page content, or provider data.
+
+### Verification boundary
+
+- Added deterministic policy cases for deceptive suffix hosts, URL credentials, custom ports, non-HTTPS schemes, reviewed authentication origins, known purchase routes, and removal of external query parameters and fragments. The production and test projects compile with those cases, but the application harness was not executed in this development pass.
+- This first M3 slice does not add speculative provider purchase routes. Provider-specific authentication, external-link, certificate-failure, billing, checkout, and payment behavior still requires separately approved runtime validation.
+
 ## 2026-08-23 — Deferred fourth-workspace activation
 
 ### Implemented behavior

@@ -70,21 +70,38 @@ internal sealed class ProviderPopupWindow : IDisposable
 
         core.NavigationStarting += (sender, args) =>
         {
-            if (_provider.IsKnownPurchaseUri(args.Uri))
+            switch (_provider.ClassifyTopLevelNavigation(args.Uri))
             {
-                args.Cancel = true;
-                _reportState(
-                    "Subscription opens on the provider's website",
-                    "AI Drawer does not provide or process subscriptions. Purchases stay with the provider.",
-                    InfoBarSeverity.Warning);
-                return;
-            }
+                case NavigationDisposition.BlockPurchase:
+                    args.Cancel = true;
+                    _reportState(
+                        "Subscription opens on the provider's website",
+                        "AI Drawer does not provide or process subscriptions. Purchases stay with the provider.",
+                        InfoBarSeverity.Warning);
+                    return;
 
-            if (!_provider.IsAllowedEmbeddedUri(args.Uri))
-            {
-                args.Cancel = true;
-                _ = OpenExternalUriAsync(args.Uri);
+                case NavigationDisposition.OpenExternal:
+                    args.Cancel = true;
+                    _ = OpenExternalUriAsync(args.Uri);
+                    return;
+
+                case NavigationDisposition.BlockUnsupported:
+                    args.Cancel = true;
+                    _reportState(
+                        "Unsupported link blocked",
+                        "AI Drawer only embeds reviewed HTTPS provider origins and opens safe HTTPS external links in the system browser.",
+                        InfoBarSeverity.Warning);
+                    return;
             }
+        };
+
+        core.ServerCertificateErrorDetected += (_, args) =>
+        {
+            args.Action = CoreWebView2ServerCertificateErrorAction.Cancel;
+            _reportState(
+                "Secure connection blocked",
+                $"Windows could not verify the certificate for {_provider.DisplayName}. AI Drawer blocked this connection.",
+                InfoBarSeverity.Error);
         };
 
         core.NewWindowRequested += (_, args) =>

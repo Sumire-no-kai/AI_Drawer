@@ -77,21 +77,32 @@ internal sealed record ProviderDefinition(
         return builder.Uri;
     }
 
-    internal PopupDisposition ClassifyPopup(string? rawUri)
+    internal NavigationDisposition ClassifyTopLevelNavigation(string? rawUri)
     {
         if (IsKnownPurchaseUri(rawUri))
         {
-            return PopupDisposition.BlockPurchase;
+            return NavigationDisposition.BlockPurchase;
         }
 
         if (IsAllowedEmbeddedUri(rawUri))
         {
-            return PopupDisposition.OpenControlledWindow;
+            return NavigationDisposition.AllowEmbedded;
         }
 
         return CreateSafeExternalUri(rawUri) is null
-            ? PopupDisposition.BlockUnsupported
-            : PopupDisposition.OpenExternal;
+            ? NavigationDisposition.BlockUnsupported
+            : NavigationDisposition.OpenExternal;
+    }
+
+    internal PopupDisposition ClassifyPopup(string? rawUri)
+    {
+        return ClassifyTopLevelNavigation(rawUri) switch
+        {
+            NavigationDisposition.AllowEmbedded => PopupDisposition.OpenControlledWindow,
+            NavigationDisposition.OpenExternal => PopupDisposition.OpenExternal,
+            NavigationDisposition.BlockPurchase => PopupDisposition.BlockPurchase,
+            _ => PopupDisposition.BlockUnsupported
+        };
     }
 
     internal Uri? CreateSafeInMemoryUri(string? rawUri)
@@ -130,6 +141,14 @@ internal sealed record ProviderDefinition(
     private static bool IsAllowedHost(string host, IReadOnlySet<string> domains) => domains.Any(domain =>
         string.Equals(host, domain, StringComparison.OrdinalIgnoreCase)
         || host.EndsWith($".{domain}", StringComparison.OrdinalIgnoreCase));
+}
+
+internal enum NavigationDisposition
+{
+    AllowEmbedded,
+    OpenExternal,
+    BlockPurchase,
+    BlockUnsupported
 }
 
 internal enum PopupDisposition

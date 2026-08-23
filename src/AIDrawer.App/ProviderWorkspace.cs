@@ -334,18 +334,25 @@ internal sealed class ProviderWorkspace : IDisposable
                 return;
             }
 
-            if (Provider.IsKnownPurchaseUri(args.Uri))
+            switch (Provider.ClassifyTopLevelNavigation(args.Uri))
             {
-                args.Cancel = true;
-                RaisePurchaseState();
-                return;
-            }
+                case NavigationDisposition.BlockPurchase:
+                    args.Cancel = true;
+                    RaisePurchaseState();
+                    return;
 
-            if (!Provider.IsAllowedEmbeddedUri(args.Uri))
-            {
-                args.Cancel = true;
-                _ = OpenExternalUriAsync(core, args.Uri);
-                return;
+                case NavigationDisposition.OpenExternal:
+                    args.Cancel = true;
+                    _ = OpenExternalUriAsync(core, args.Uri);
+                    return;
+
+                case NavigationDisposition.BlockUnsupported:
+                    args.Cancel = true;
+                    RaiseState(
+                        "Unsupported navigation blocked",
+                        "AI Drawer only embeds reviewed HTTPS provider origins and opens safe HTTPS external links in your system browser.",
+                        InfoBarSeverity.Warning);
+                    return;
             }
 
             _pendingNavigations.Add(args.NavigationId);
@@ -364,6 +371,21 @@ internal sealed class ProviderWorkspace : IDisposable
                 args.Cancel = true;
                 RaisePurchaseState();
             }
+        };
+
+        core.ServerCertificateErrorDetected += (_, args) =>
+        {
+            if (!IsCurrent(core))
+            {
+                return;
+            }
+
+            args.Action = CoreWebView2ServerCertificateErrorAction.Cancel;
+            RaiseState(
+                "Secure connection blocked",
+                $"Windows could not verify the certificate for {Provider.DisplayName}. AI Drawer did not continue.",
+                InfoBarSeverity.Error,
+                requiresRecovery: true);
         };
 
         core.NewWindowRequested += (sender, args) =>
