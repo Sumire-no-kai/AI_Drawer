@@ -2,6 +2,20 @@
 
 This is the durable development record for implementation decisions, verified behavior, limitations, and open work. It is not a release changelog. Planned behavior must not be presented as shipped or provider-compatible behavior.
 
+## 2026-08-23 — Window icon consistency and reset-action accessibility
+
+### Implemented behavior
+
+- Replaced the legacy monochrome `AppIcon.ico` with a multi-size icon mechanically derived from the existing blue AI Drawer package-mark asset. The window icon, title-bar icon, and notification-area icon all continue to use that one source, so they no longer diverge from the blue package branding.
+- Added an explicit `AutomationProperties.Name` to the **Reset website data** Flyout action. Its visible label is now exposed as a named button to Windows accessibility clients and stable UI automation.
+
+### Verification boundary
+
+- The repository-local .NET SDK remains available at `D:\DevTools\dotnet\dotnet.exe`; an earlier shell lookup found only the runtime because that SDK directory was absent from the active `PATH`.
+- The unpackaged x64 Debug application and application-harness projects rebuilt with zero warnings and zero errors. The Core policy harness completed all nine checks and the application recovery/policy/UI harness completed all eleven checks.
+- No package was registered or installed. All runtime automation used generated temporary profiles without login, prompts, BMC launch, payment, or normal-browser data access, and the generated roots were removed afterwards.
+- A UI Automation attempt to traverse the full reset confirmation still could not observe the WinUI confirmation overlay after invoking the Flyout item. The action naming defect is fixed, but this is not evidence that a real provider-profile reset has passed; retain reset workflow verification as open for a direct user-operated or more suitable UI host run.
+
 ## 2026-08-22 — Isolated x64 M2.2 runtime validation
 
 ### Verified behavior

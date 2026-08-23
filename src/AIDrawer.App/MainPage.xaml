@@ -177,7 +177,10 @@
                                             <TextBlock x:Name="RestartActionText" Text="Restart workspace" />
                                         </StackPanel>
                                     </Button>
-                                    <Button Style="{StaticResource ActionMenuButtonStyle}" Click="ResetWebsiteDataMenuItem_Click">
+                                    <Button
+                                        Style="{StaticResource ActionMenuButtonStyle}"
+                                        AutomationProperties.Name="Reset website data"
+                                        Click="ResetWebsiteDataMenuItem_Click">
                                         <StackPanel Orientation="Horizontal" Spacing="10">
                                             <FontIcon Glyph="&#xE74D;" FontSize="16" />
                                             <TextBlock Text="Reset website data" />
