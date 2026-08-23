@@ -2,6 +2,17 @@
 
 This is the durable development record for implementation decisions, verified behavior, limitations, and open work. It is not a release changelog. Planned behavior must not be presented as shipped or provider-compatible behavior.
 
+## 2026-08-23 — Deferred fourth-workspace activation
+
+### Implemented behavior
+
+- A workspace that cannot start because every live WebView is in a known protected operation is retained as the active native workspace and marked for deferred activation. Completion of a navigation, native permission request, download, or controlled provider popup re-evaluates the same hard-cap policy and retries that workspace automatically.
+- The retry never disposes an active or still-protected workspace, never raises the hard live-view cap, and is cancelled if the user changes selection, closes the blocked workspace, or the application shuts down. Once the retry creates the WebView, the native workspace-action control is re-enabled.
+
+### Verification boundary
+
+- This is an implementation change only. The required sustained third/fourth-workspace pressure run and its measured resource budget remain open.
+
 ## 2026-08-23 — Window icon consistency and reset-action accessibility
 
 ### Implemented behavior

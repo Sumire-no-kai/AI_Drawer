@@ -56,6 +56,8 @@ internal sealed class ProviderWorkspace : IDisposable
 
     internal event EventHandler<WorkspaceProcessFailureEventArgs>? ProcessFailure;
 
+    internal event EventHandler? OperationCompleted;
+
     internal ProviderDefinition Provider { get; }
 
     internal string WorkspaceId { get; }
@@ -232,7 +234,7 @@ internal sealed class ProviderWorkspace : IDisposable
     {
         RaiseState(
             "Workspace needs a safe memory slot",
-            "Other workspaces are completing navigation, a permission request, or a download. Try again after that protected operation finishes.",
+            "Other workspaces are completing navigation, a permission request, or a download. AI Drawer will retry this workspace automatically when a safe slot becomes available.",
             InfoBarSeverity.Warning,
             requiresRecovery: true);
         if (!IsLive)
@@ -240,6 +242,12 @@ internal sealed class ProviderWorkspace : IDisposable
             RaiseLifecycle(WorkspaceLifecyclePhase.Disposed);
         }
     }
+
+    internal void ReportCapacityRetrying() => RaiseState(
+        $"Opening {Provider.DisplayName}",
+        "A protected operation finished, so AI Drawer is retrying this workspace without interrupting the other workspaces.",
+        InfoBarSeverity.Informational,
+        activity: WorkspaceActivity.Opening);
 
     internal void ReportEnvironmentFailure(Exception exception)
     {
@@ -438,6 +446,7 @@ internal sealed class ProviderWorkspace : IDisposable
             finally
             {
                 _pendingPermissionRequests.Remove(requestId);
+                OperationCompleted?.Invoke(this, EventArgs.Empty);
             }
         };
 
@@ -465,6 +474,7 @@ internal sealed class ProviderWorkspace : IDisposable
             }
 
             _pendingNavigations.Remove(args.NavigationId);
+            OperationCompleted?.Invoke(this, EventArgs.Empty);
 
             if (args.IsSuccess)
             {
@@ -517,7 +527,13 @@ internal sealed class ProviderWorkspace : IDisposable
                 environment,
                 Provider,
                 (title, message, severity) => RaiseState(title, message, severity),
-                closed => _popupWindows.Remove(closed));
+                closed =>
+                {
+                    if (_popupWindows.Remove(closed))
+                    {
+                        OperationCompleted?.Invoke(this, EventArgs.Empty);
+                    }
+                });
             if (popup is null || !IsCurrent(sourceCore))
             {
                 popup?.Dispose();
@@ -804,6 +820,8 @@ internal sealed class ProviderWorkspace : IDisposable
             {
                 // The download may already have released its COM event source.
             }
+
+            OperationCompleted?.Invoke(this, EventArgs.Empty);
         }
     }
 

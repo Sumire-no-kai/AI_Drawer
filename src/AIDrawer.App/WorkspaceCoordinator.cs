@@ -22,6 +22,7 @@ internal sealed class WorkspaceCoordinator : IDisposable
     private bool _disposed;
     private bool _windowIsVisible = true;
     private bool _browserRecoveryInProgress;
+    private string? _capacityBlockedWorkspaceId;
 
     internal WorkspaceCoordinator(
         Panel host,
@@ -97,6 +98,7 @@ internal sealed class WorkspaceCoordinator : IDisposable
                 nextWorkspace.LifecycleChanged += Workspace_LifecycleChanged;
                 nextWorkspace.SuccessfulOpen += Workspace_SuccessfulOpen;
                 nextWorkspace.ProcessFailure += Workspace_ProcessFailure;
+                nextWorkspace.OperationCompleted += Workspace_OperationCompleted;
                 _workspaces.Add(workspaceId, nextWorkspace);
                 _host.Children.Add(nextWorkspace.View);
             }
@@ -111,23 +113,12 @@ internal sealed class WorkspaceCoordinator : IDisposable
 
             if (!ReferenceEquals(ActiveWorkspace, nextWorkspace))
             {
+                _capacityBlockedWorkspaceId = null;
                 ActiveWorkspace?.Deactivate(_lifecyclePolicy.GracePeriod);
                 ActiveWorkspace = nextWorkspace;
             }
 
-            if (!EnsureCapacityFor(nextWorkspace))
-            {
-                nextWorkspace.ReportCapacityBlocked();
-                return false;
-            }
-
-            var environment = await GetEnvironmentAsync(nextWorkspace);
-            if (environment is null || _disposed)
-            {
-                return false;
-            }
-
-            return await nextWorkspace.ActivateAsync(environment, _windowIsVisible);
+            return await ActivateWorkspaceUnderLockAsync(nextWorkspace);
         }
         finally
         {
@@ -172,6 +163,7 @@ internal sealed class WorkspaceCoordinator : IDisposable
 
             ActiveWorkspace?.Deactivate(_lifecyclePolicy.GracePeriod);
             ActiveWorkspace = null;
+            _capacityBlockedWorkspaceId = null;
         }
         finally
         {
@@ -219,7 +211,13 @@ internal sealed class WorkspaceCoordinator : IDisposable
                 ActiveWorkspace = null;
             }
 
+            if (string.Equals(_capacityBlockedWorkspaceId, workspaceId, StringComparison.Ordinal))
+            {
+                _capacityBlockedWorkspaceId = null;
+            }
+
             workspace.ProcessFailure -= Workspace_ProcessFailure;
+            workspace.OperationCompleted -= Workspace_OperationCompleted;
             workspace.Dispose();
             _host.Children.Remove(workspace.View);
         }
@@ -350,6 +348,30 @@ internal sealed class WorkspaceCoordinator : IDisposable
         return _workspaces.Values.Count(workspace => workspace.IsLive) < _lifecyclePolicy.HardLiveLimit;
     }
 
+    private async Task<bool> ActivateWorkspaceUnderLockAsync(ProviderWorkspace workspace)
+    {
+        if (!EnsureCapacityFor(workspace))
+        {
+            _capacityBlockedWorkspaceId = workspace.WorkspaceId;
+            workspace.ReportCapacityBlocked();
+            return false;
+        }
+
+        var environment = await GetEnvironmentAsync(workspace);
+        if (environment is null || _disposed)
+        {
+            return false;
+        }
+
+        var activated = await workspace.ActivateAsync(environment, _windowIsVisible);
+        if (activated && string.Equals(_capacityBlockedWorkspaceId, workspace.WorkspaceId, StringComparison.Ordinal))
+        {
+            _capacityBlockedWorkspaceId = null;
+        }
+
+        return activated;
+    }
+
     private void Workspace_StateChanged(object? sender, WorkspaceStateChangedEventArgs args) =>
         StateChanged?.Invoke(this, args);
 
@@ -361,6 +383,54 @@ internal sealed class WorkspaceCoordinator : IDisposable
 
     private void Workspace_SuccessfulOpen(object? sender, string workspaceId) =>
         SuccessfulOpen?.Invoke(this, workspaceId);
+
+    private void Workspace_OperationCompleted(object? sender, EventArgs args)
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _host.DispatcherQueue.TryEnqueue(RetryCapacityBlockedWorkspaceFromQueueAsync);
+    }
+
+    private async void RetryCapacityBlockedWorkspaceFromQueueAsync()
+    {
+        try
+        {
+            await RetryCapacityBlockedWorkspaceAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            // Shutdown cancels a deferred workspace activation.
+        }
+        catch
+        {
+            // A deferred activation must not surface an unhandled event exception.
+        }
+    }
+
+    private async Task RetryCapacityBlockedWorkspaceAsync()
+    {
+        await _selectionLock.WaitAsync(_lifetimeCancellation.Token);
+        try
+        {
+            if (_disposed
+                || _capacityBlockedWorkspaceId is not { } workspaceId
+                || ActiveWorkspace is not { } activeWorkspace
+                || !string.Equals(activeWorkspace.WorkspaceId, workspaceId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            activeWorkspace.ReportCapacityRetrying();
+            await ActivateWorkspaceUnderLockAsync(activeWorkspace);
+        }
+        finally
+        {
+            _selectionLock.Release();
+        }
+    }
 
     private async void Workspace_ProcessFailure(object? sender, WorkspaceProcessFailureEventArgs args)
     {

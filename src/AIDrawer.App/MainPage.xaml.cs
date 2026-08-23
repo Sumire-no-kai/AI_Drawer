@@ -243,6 +243,11 @@ public sealed partial class MainPage : Page
 
         workspace.SetLifecyclePhase(args.Phase);
         UpdateWorkspaceTab(workspace);
+        if (args.Phase == WorkspaceLifecyclePhase.Active
+            && string.Equals(_activeWorkspace?.Id, args.WorkspaceId, StringComparison.Ordinal))
+        {
+            WorkspaceActionsButton.IsEnabled = true;
+        }
     }
 
     private async void Workspace_SuccessfulOpen(object? sender, string workspaceId)
