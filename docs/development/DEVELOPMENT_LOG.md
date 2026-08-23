@@ -15,6 +15,9 @@ This is the durable development record for implementation decisions, verified be
 - The unpackaged x64 Debug application and application-harness projects rebuilt with zero warnings and zero errors. The Core policy harness completed all nine checks and the application recovery/policy/UI harness completed all eleven checks.
 - No package was registered or installed. All runtime automation used generated temporary profiles without login, prompts, BMC launch, payment, or normal-browser data access, and the generated roots were removed afterwards.
 - A UI Automation attempt to traverse the full reset confirmation still could not observe the WinUI confirmation overlay after invoking the Flyout item. The action naming defect is fixed, but this is not evidence that a real provider-profile reset has passed; retain reset workflow verification as open for a direct user-operated or more suitable UI host run.
+- A matched temporary-profile WebView2 renderer process was terminated. The native application remained alive and created a new same-profile WebView2 process. A browser-process exit left the native window and workspace controls operable, but the sampling window did not retain sufficient PID evidence to claim the required environment-recreation path passed.
+- Compatibility Lab **Fresh disposable** cleanup passed after a matched temporary renderer exit: after the local **End test** action, no generated `fresh-*` directory remained beneath the generated test root.
+- Four same-provider workspace pressure did not pass. In two independent no-account temporary-profile runs, workspaces one through three became ready but workspace four did not become ready within 45 seconds and then 90 seconds. No resource budget is claimed from those runs; this is a capacity-path diagnosis item, not a timeout to ignore.
 
 ## 2026-08-22 — Isolated x64 M2.2 runtime validation
 
