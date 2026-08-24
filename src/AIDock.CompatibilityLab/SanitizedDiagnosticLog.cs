@@ -8,12 +8,17 @@ namespace AIDock.CompatibilityLab;
 internal sealed class SanitizedDiagnosticLog
 {
     private const int MaximumEventCount = 100;
+#if DEBUG
+    private const bool DiagnosticsEnabled = true;
+#else
+    private const bool DiagnosticsEnabled = false;
+#endif
     private readonly Queue<string> _events = [];
 
     internal void Record(string eventCode)
     {
-#if DEBUG
-        if (string.IsNullOrWhiteSpace(eventCode)
+        if (!DiagnosticsEnabled
+            || string.IsNullOrWhiteSpace(eventCode)
             || eventCode.Any(character => !(char.IsAsciiLetterOrDigit(character)
                 || character is ' ' or '=' or '-' or '_')))
         {
@@ -26,17 +31,10 @@ internal sealed class SanitizedDiagnosticLog
         }
 
         _events.Enqueue($"[{DateTimeOffset.Now:HH:mm:ss}] {eventCode}");
-#endif
     }
 
     internal void Clear() => _events.Clear();
 
-    internal string Render()
-    {
-#if DEBUG
-        return string.Join(Environment.NewLine, _events);
-#else
-        return string.Empty;
-#endif
-    }
+    internal string Render() =>
+        DiagnosticsEnabled ? string.Join(Environment.NewLine, _events) : string.Empty;
 }

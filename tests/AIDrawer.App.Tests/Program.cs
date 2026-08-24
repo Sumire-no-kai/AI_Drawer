@@ -6,6 +6,8 @@ using System.Text.Json;
 using System.Windows.Automation;
 
 var failures = new List<string>();
+var runUiChecks = !args.Contains("--no-ui", StringComparer.OrdinalIgnoreCase);
+var completedCheckCount = 0;
 var testRoot = Path.Combine(Path.GetTempPath(), $"AI-Drawer-SessionTests-{Guid.NewGuid():N}");
 Environment.SetEnvironmentVariable("AI_DRAWER_TEST_DATA_ROOT", testRoot);
 var appDataRoot = Path.Combine(testRoot, "AI Drawer");
@@ -132,65 +134,84 @@ try
         False(File.Exists($"{sessionPath}.tmp"));
     });
 
-    await CheckAsync("a saved restricted locator restores its provider workspace in a new application process", async () =>
+    if (runUiChecks)
     {
-        Directory.Delete(appDataRoot, recursive: true);
-        var provider = ProviderCatalog.AvailableProviders.Single(candidate => candidate.Id == "chatgpt");
-        var workspace = new WorkspaceTab(
-            "workspace-restore",
-            "ChatGPT",
-            provider,
-            provider.Id,
-            keepActive: false,
-            new Uri("https://chatgpt.com/c/opaque-restart-validation-id"),
-            wasRestoredFromSession: false);
-        var store = new WorkspaceSessionStore();
-        await store.SaveSessionAsync([workspace], workspace.Id, restoreExactWorkspace: true);
+        await CheckAsync("a saved restricted locator restores its native workspace and isolated profile in a new application process", async () =>
+        {
+            Directory.Delete(appDataRoot, recursive: true);
+            var provider = ProviderCatalog.AvailableProviders.Single(candidate => candidate.Id == "chatgpt");
+            var workspace = new WorkspaceTab(
+                "workspace-restore",
+                "ChatGPT",
+                provider,
+                provider.Id,
+                keepActive: false,
+                new Uri("https://chatgpt.com/c/opaque-restart-validation-id"),
+                wasRestoredFromSession: false);
+            var store = new WorkspaceSessionStore();
+            await store.SaveSessionAsync([workspace], workspace.Id, restoreExactWorkspace: true);
 
-        var appPath = GetAppPath();
-        True(File.Exists(appPath));
-        using var process = new Process
-        {
-            StartInfo = new ProcessStartInfo(appPath)
+            var appPath = GetAppPath();
+            True(File.Exists(appPath));
+            using var process = new Process
             {
-                WorkingDirectory = Path.GetDirectoryName(appPath)!,
-                UseShellExecute = false
+                StartInfo = new ProcessStartInfo(appPath)
+                {
+                    WorkingDirectory = Path.GetDirectoryName(appPath)!,
+                    UseShellExecute = false
+                }
+            };
+            process.StartInfo.Environment["AI_DRAWER_TEST_DATA_ROOT"] = testRoot;
+            True(process.Start());
+            try
+            {
+                await WaitUntilAsync(() =>
+                {
+                    process.Refresh();
+                    return process.MainWindowHandle != IntPtr.Zero;
+                }, TimeSpan.FromSeconds(30), "AI Drawer main window");
+
+                var root = AutomationElement.FromHandle(process.MainWindowHandle);
+                var continueButton = FindByName(root, "Continue");
+                if (continueButton is null)
+                {
+                    throw new InvalidOperationException("The isolated first-run welcome action was not found.");
+                }
+
+                await CompleteWelcomeAsync(root);
+                await WaitUntilAsync(
+                    () => FindByName(root, "ChatGPT") is not null,
+                    TimeSpan.FromSeconds(15),
+                    "restored ChatGPT workspace");
+                try
+                {
+                    await WaitUntilAsync(
+                        () => Directory.Exists(Path.Combine(appDataRoot, "WebView2")),
+                        TimeSpan.FromSeconds(30),
+                        "isolated WebView2 profile creation");
+                }
+                catch (TimeoutException exception)
+                {
+                    var nativeStatus = FindByAutomationId(root, "StatusMessage")?.Current.Name;
+                    var existingDirectories = Directory.Exists(appDataRoot)
+                        ? string.Join(", ", Directory.GetDirectories(appDataRoot).Select(Path.GetFileName))
+                        : "none";
+                    throw new TimeoutException(
+                        $"{exception.Message} Native status: {nativeStatus ?? "unavailable"}. App-data directories: {existingDirectories}.",
+                        exception);
+                }
             }
-        };
-        process.StartInfo.Environment["AI_DRAWER_TEST_DATA_ROOT"] = testRoot;
-        True(process.Start());
-        try
-        {
-            await WaitUntilAsync(() =>
+            finally
             {
                 process.Refresh();
-                return process.MainWindowHandle != IntPtr.Zero;
-            }, TimeSpan.FromSeconds(15));
-
-            var root = AutomationElement.FromHandle(process.MainWindowHandle);
-            var continueButton = FindByName(root, "Continue");
-            if (continueButton is null)
-            {
-                throw new InvalidOperationException("The isolated first-run welcome action was not found.");
+                if (!process.HasExited && string.Equals(process.MainModule?.FileName, appPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync();
+                }
             }
-
-            ((InvokePattern)continueButton.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
-            await WaitUntilAsync(() => FindByName(root, "ChatGPT") is not null, TimeSpan.FromSeconds(10));
-            await WaitUntilAsync(
-                () => FindByName(root, "Workspace actions") is { Current.IsEnabled: true },
-                TimeSpan.FromSeconds(15));
-            True(Directory.Exists(Path.Combine(appDataRoot, "WebView2")));
-        }
-        finally
-        {
-            process.Refresh();
-            if (!process.HasExited && string.Equals(process.MainModule?.FileName, appPath, StringComparison.OrdinalIgnoreCase))
-            {
-                process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync();
-            }
-        }
-    });
+        });
+    }
 
     await CheckAsync("navigation policy preserves reviewed origins and fails closed", () =>
     {
@@ -223,60 +244,64 @@ try
         return Task.CompletedTask;
     });
 
-    await CheckAsync("the recovery UI backs up a corrupt session before continuing", async () =>
+    if (runUiChecks)
     {
-        const string corruptSession = "{ session is broken";
-        Directory.Delete(appDataRoot, recursive: true);
-        await WriteSessionAsync(corruptSession);
-        var appPath = GetAppPath();
-        True(File.Exists(appPath));
+        await CheckAsync("the recovery UI backs up a corrupt session before continuing", async () =>
+        {
+            const string corruptSession = "{ session is broken";
+            Directory.Delete(appDataRoot, recursive: true);
+            await WriteSessionAsync(corruptSession);
+            var appPath = GetAppPath();
+            True(File.Exists(appPath));
 
-        using var process = new Process
-        {
-            StartInfo = new ProcessStartInfo(appPath)
+            using var process = new Process
             {
-                WorkingDirectory = Path.GetDirectoryName(appPath)!,
-                UseShellExecute = false
+                StartInfo = new ProcessStartInfo(appPath)
+                {
+                    WorkingDirectory = Path.GetDirectoryName(appPath)!,
+                    UseShellExecute = false
+                }
+            };
+            process.StartInfo.Environment["AI_DRAWER_TEST_DATA_ROOT"] = testRoot;
+            True(process.Start());
+            try
+            {
+                await WaitUntilAsync(() =>
+                {
+                    process.Refresh();
+                    return process.MainWindowHandle != IntPtr.Zero;
+                }, TimeSpan.FromSeconds(30), "AI Drawer recovery window");
+
+                var root = AutomationElement.FromHandle(process.MainWindowHandle);
+                var title = FindByName(root, "Previous workspace session needs recovery");
+                var backup = FindByName(root, "Back up and continue");
+                var retry = FindByName(root, "Retry");
+                True(title is not null);
+                True(backup is { Current.IsEnabled: true });
+                True(retry is { Current.IsEnabled: true });
+                if (backup is null)
+                {
+                    throw new InvalidOperationException("Recovery backup action was not found.");
+                }
+
+                ((InvokePattern)backup.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+                await WaitUntilAsync(
+                    () => Directory.GetFiles(appDataRoot, "*.recovery-backup.json").Length == 1,
+                    TimeSpan.FromSeconds(10),
+                    "recovery backup creation");
+                Equal(corruptSession, await File.ReadAllTextAsync(Directory.GetFiles(appDataRoot, "*.recovery-backup.json").Single()));
             }
-        };
-        process.StartInfo.Environment["AI_DRAWER_TEST_DATA_ROOT"] = testRoot;
-        True(process.Start());
-        try
-        {
-            await WaitUntilAsync(() =>
+            finally
             {
                 process.Refresh();
-                return process.MainWindowHandle != IntPtr.Zero;
-            }, TimeSpan.FromSeconds(15));
-
-            var root = AutomationElement.FromHandle(process.MainWindowHandle);
-            var title = FindByName(root, "Previous workspace session needs recovery");
-            var backup = FindByName(root, "Back up and continue");
-            var retry = FindByName(root, "Retry");
-            True(title is not null);
-            True(backup is { Current.IsEnabled: true });
-            True(retry is { Current.IsEnabled: true });
-            if (backup is null)
-            {
-                throw new InvalidOperationException("Recovery backup action was not found.");
+                if (!process.HasExited && string.Equals(process.MainModule?.FileName, appPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync();
+                }
             }
-
-            ((InvokePattern)backup.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
-            await WaitUntilAsync(
-                () => Directory.GetFiles(appDataRoot, "*.recovery-backup.json").Length == 1,
-                TimeSpan.FromSeconds(10));
-            Equal(corruptSession, await File.ReadAllTextAsync(Directory.GetFiles(appDataRoot, "*.recovery-backup.json").Single()));
-        }
-        finally
-        {
-            process.Refresh();
-            if (!process.HasExited && string.Equals(process.MainModule?.FileName, appPath, StringComparison.OrdinalIgnoreCase))
-            {
-                process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync();
-            }
-        }
-    });
+        });
+    }
 
 }
 finally
@@ -293,7 +318,7 @@ if (failures.Count > 0)
     return 1;
 }
 
-Console.WriteLine("11 app session-recovery, policy, and UI boundary checks passed.");
+Console.WriteLine($"{completedCheckCount} app session-recovery, policy, and UI boundary checks passed.");
 return 0;
 
 async Task WriteSessionAsync(string content)
@@ -307,6 +332,7 @@ async Task CheckAsync(string name, Func<Task> test)
     try
     {
         await test();
+        completedCheckCount++;
     }
     catch (Exception exception)
     {
@@ -361,20 +387,55 @@ static AutomationElement? FindByName(AutomationElement root, string name)
     return root.FindFirst(TreeScope.Descendants, condition);
 }
 
+static AutomationElement? FindByAutomationId(AutomationElement root, string automationId)
+{
+    var condition = new PropertyCondition(AutomationElement.AutomationIdProperty, automationId);
+    return root.FindFirst(TreeScope.Descendants, condition);
+}
+
+static async Task CompleteWelcomeAsync(AutomationElement root)
+{
+    const int maximumDisclosureCount = 5;
+    for (var index = 0; index < maximumDisclosureCount; index++)
+    {
+        var continueButton = FindByName(root, "Continue");
+        if (continueButton is null)
+        {
+            return;
+        }
+
+        var currentTitle = FindByAutomationId(root, "PromptTitle")?.Current.Name;
+        ((InvokePattern)continueButton.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+        await WaitUntilAsync(
+            () =>
+            {
+                var nextTitle = FindByAutomationId(root, "PromptTitle")?.Current.Name;
+                return !string.Equals(nextTitle, currentTitle, StringComparison.Ordinal);
+            },
+            TimeSpan.FromSeconds(5),
+            "welcome disclosure advance");
+    }
+
+    if (FindByName(root, "Continue") is not null)
+    {
+        throw new InvalidOperationException("The welcome flow exceeded the supported disclosure count.");
+    }
+}
+
 static string GetAppPath() => Path.GetFullPath(Path.Combine(
     AppContext.BaseDirectory,
     "..", "..", "..", "..", "..", "..", "..",
     "src", "AIDrawer.App", "bin", "x64", "Debug",
     "net10.0-windows10.0.26100.0", "win-x64", "AIDrawer.App.exe"));
 
-static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)
+static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout, string description)
 {
     var deadline = DateTime.UtcNow + timeout;
     while (!condition())
     {
         if (DateTime.UtcNow >= deadline)
         {
-            throw new TimeoutException($"Condition was not met within {timeout}.");
+            throw new TimeoutException($"{description} was not ready within {timeout}.");
         }
 
         await Task.Delay(100);

@@ -1,7 +1,7 @@
 # AI Drawer
 
 ![Repository version](https://img.shields.io/badge/version-0.0.1--dev-181717?style=flat-square&labelColor=181717)
-![Development status](https://img.shields.io/badge/status-M2.2%20Implementation%20Under%20Verification-181717?style=flat-square&labelColor=181717)
+![Development status](https://img.shields.io/badge/status-M4%20Foundation%20Under%20Development-181717?style=flat-square&labelColor=181717)
 ![Initial platform](https://img.shields.io/badge/platform-Windows%2010%201809%2B%20%7C%2011-181717?style=flat-square&labelColor=181717)
 
 > A lightweight, privacy-respecting Windows workspace for the AI web apps you already use.
@@ -34,11 +34,13 @@ The shell now contains the **Milestone 2.2 workspace persistence and lifecycle i
 
 M3 implementation now applies a fail-closed, exact-origin navigation boundary while currently unavailable M2 tests remain explicitly deferred rather than passed. Main workspaces, their frames, and controlled provider popups embed only reviewed HTTPS provider or authentication origins; certificate-error navigation is explicitly cancelled. Unreviewed top-level external links require native confirmation before a query- and fragment-stripped handoff to the system browser, while external frames remain blocked. Known purchase paths are cancelled and show a native explanation only: AI Drawer never opens or processes provider purchases. This does not change any provider compatibility status or establish that provider-specific authentication, external-link, billing, checkout, or payment flows have passed runtime validation.
 
+M4 work has started with a pinned .NET SDK, clean-checkout CI, privacy-safe issue templates, release-gate documentation, and a manually triggered internal MSIX candidate workflow. The current candidate is deliberately unsigned, carries a SHA-256 checksum and machine-readable source/package metadata, and is explicitly marked as ineligible for public release. It validates the packaging pipeline only: it is not an installable Public Beta, and it does not resolve signing, public identity/versioning, private vulnerability reporting, the independent website, or the deferred M2/M3 runtime Gates.
+
 For reviewed provider URL shapes, the implementation can store one current-user-encrypted restore locator containing only the exact provider HTTPS origin and an allowlisted opaque conversation path. Query parameters, fragments, authentication hosts, subdomains, custom ports, and unknown paths are rejected, and the value is revalidated before storage and use. A separate non-persisted, app-domain-only URL can preserve a safer same-process return target after WebView disposal without weakening the restart privacy boundary. ChatGPT, Claude, and Gemini currently have provisional persisted-path rules; the other provider entries intentionally fall back to provider home after restart until a safe rule is reviewed. The three-screen, versioned first-run privacy disclosure, About & Privacy surface, disabled-until-measured memory-mode selector, exact-restore control, Keep active control, local support-reminder policy, and tray Settings entry are also present.
 
 The optional support entry opens Edward Lee's shared [Buy Me a Coffee page](https://buymeacoffee.com/edward_lee) for independent projects. Contributions do not activate or unlock AI Drawer, provider services, subscriptions, accounts, premium features, or support plans.
 
-After the full code-review pass, the production x64 Debug project and Core-check project pass the `Recommended` .NET analyzer set with warnings treated as errors, the production build has zero warnings and zero errors, and all nine framework-free locator/lifecycle policy checks pass. The production application now also compiles for `win-arm64` and has a self-contained ARM64 file-system publish profile. Focused unpackaged x64 validation also exercised Welcome, Settings, the BMC entry, native workspace create/close, corrupt-session backup-and-continue, a fresh no-account WebView2 profile initialization, same-profile WebView2 recreation after terminating only child processes matched to that temporary profile, DPAPI locator round-trip, and restoration of a fictional reviewed locator into a new application process. Those runs used generated temporary data roots, without registration, installation, login, prompt, or provider-content interaction. The implementation now preserves recovery-blocked session files until the user retries or creates a local backup, differentiates WebView2 process-failure recovery, uses controlled same-profile provider popups, and clears Compatibility Lab fresh profiles after WebView2 releases them. This is still not M2 acceptance or a provider/performance claim: real account-conversation restart restoration, provider-profile reset, renderer-specific recovery categories, popup behavior, fresh-profile cleanup after abnormal exit, instrumented live-view pressure, provider URL behavior, accessibility breadth, ARM64 device verification, x86 compilation, and the required Windows 10/11 matrix remain open. There is no public end-user build yet.
+After the full code-review pass, production x64, x86, and ARM64 Debug/Release builds pass the `Recommended` .NET analyzer set with warnings treated as errors, and the framework-free Core harness passes all nine locator/lifecycle checks. The application also has a self-contained ARM64 file-system publish profile. Focused unpackaged x64 validation exercised all three Welcome disclosures, Settings, the BMC entry, native workspace create/close, corrupt-session backup-and-continue, a fresh no-account WebView2 profile initialization, same-profile WebView2 recreation after terminating only child processes matched to that temporary profile, DPAPI locator round-trip, and restoration of a fictional reviewed locator into a new application process. The current application harness passes nine non-GUI policy/session checks and all eleven checks with the two local UI flows enabled. Those runs used generated temporary data roots, without registration, installation, login, prompt, or provider-content interaction; provider-page readiness is not part of the native restart check. The implementation now preserves recovery-blocked session files until the user retries or creates a local backup, differentiates WebView2 process-failure recovery, uses controlled same-profile provider popups, and clears Compatibility Lab fresh profiles after WebView2 releases them. This is still not M2 acceptance or a provider/performance claim: real account-conversation restart restoration, provider-profile reset, renderer-specific recovery categories, popup behavior, fresh-profile cleanup after abnormal exit, instrumented live-view pressure, provider URL behavior, accessibility breadth, x86/ARM64 device verification, and the required Windows 10/11 matrix remain open. There is no public end-user build yet.
 
 | Provider | Current status | Evidence boundary |
 | --- | --- | --- |
@@ -153,6 +155,14 @@ The ARM64 profile produces a self-contained file-system publish directory under 
 
 Debug builds default to the repository-local unpackaged profile. In Visual Studio, select **AI Drawer (Unpackaged)**; this runs the project without installing or registering AI Drawer and does not create a Start-menu entry. The separate **AI Drawer (Package — registers app)** profile is only for deliberate MSIX testing and may require Windows Developer Mode. No installer, signing configuration, or public release artifact is included yet.
 
+To inspect the current unsigned packaging pipeline without installing or publishing anything, use a clean working tree and run:
+
+```powershell
+./tools/Build-InternalBetaCandidate.ps1 -CandidateLabel local-check
+```
+
+The script creates an ignored directory under `artifacts/beta-candidates`, verifies that the main x64 MSIX has no signature block or private-key files, and writes `SHA256SUMS.txt`, `candidate-manifest.json`, and the current known limitations. `-AllowDirtySource` is only for local development probes and is recorded in the candidate metadata. See the [Public Beta release checklist](docs/release/BETA_RELEASE_CHECKLIST.md) before treating any artifact as releasable.
+
 ## Project documents
 
 - [Product principles](PRODUCT.md)
@@ -162,10 +172,11 @@ Provider compatibility contributions must include reproducible environment detai
 
 ## Roadmap
 
-1. Complete the remaining M2.2 restart, encrypted-locator, provider-profile reset, renderer-specific recovery, popup, fresh-profile cleanup, broader accessibility, and multi-workspace lifecycle verification.
-3. Run the deferred live-view pressure comparison before enabling Low Memory or Fast Switching modes or claiming a capacity.
-4. Review safe restore patterns provider by provider; unsupported persisted patterns must continue to fail closed to provider home after restart.
-5. Complete the outstanding M0/M2 compatibility and Windows 10/11 evidence, then decide whether the M2 Gate permits entry into M3.
+1. Complete the deferred M2 restart, profile-reset, recovery, accessibility, live-view pressure, architecture, and Windows-version evidence without treating current implementation as acceptance.
+2. Finish the remaining M3 provider-specific navigation, popup, purchase-boundary, and focused runtime security verification.
+3. Resolve the M4 public product identity/version scheme, MSIX dependency model, signing path, and private vulnerability-reporting channel.
+4. Build and deploy the required independent static website from its own repository and release lifecycle.
+5. Test the exact signed Beta bytes across the approved matrix, then publish a tagged GitHub prerelease with checksums, limitations, and rollback guidance.
 
 ## Independence
 

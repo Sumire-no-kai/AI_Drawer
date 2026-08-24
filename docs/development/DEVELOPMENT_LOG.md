@@ -2,6 +2,24 @@
 
 This is the durable development record for implementation decisions, verified behavior, limitations, and open work. It is not a release changelog. Planned behavior must not be presented as shipped or provider-compatible behavior.
 
+## 2026-08-24 — M4 internal packaging and CI foundation
+
+### Implemented foundation
+
+- Pinned the repository to the .NET `10.0.400` SDK feature band and added Windows clean-checkout CI for production Debug/Release compilation, Compatibility Lab Debug/Release compilation, application-check compilation, and the privacy-safe Core policy harness. The GUI/application harness is compiled but not executed by CI because it includes separately authorized runtime paths.
+- Added a manually triggered internal-candidate workflow and local PowerShell entry point. They restore and build the x64 Release MSIX without signing, distinguish the application package from framework dependency packages, reject an unexpected package signature or private-key file, read package identity and architecture from the generated MSIX, and emit SHA-256 plus machine-readable source/package metadata.
+- Added non-sensitive bug and provider-evidence templates, a pull-request privacy/security checklist, current known limitations, and a Public Beta release checklist. The repository security policy explicitly forbids public sensitive reports while no private channel exists.
+
+### Verification boundary
+
+- An end-to-end local candidate run generated the `AIDrawer.App` x64 MSIX at manifest version `1.0.0.0`, independently confirmed that it contains no `AppxSignature.p7x`, and produced matching checksum-file, candidate-manifest, and recomputed SHA-256 values. The candidate was not registered, installed, launched, or published.
+- Production x64, x86, and ARM64 Debug/Release builds, Compatibility Lab Debug/Release, and the application-check project pass the `Recommended` analyzer level with warnings treated as errors. All nine Core policy checks, all nine non-GUI application checks, and all eleven checks with the two local GUI flows enabled passed. The GUI run completed the current three-screen Welcome flow and used a generated temporary data root; it did not require provider-page readiness and did not perform login, prompt submission, BMC launch, external-browser launch, or purchase behavior.
+- The application harness now separates its non-GUI checks for CI from two local UI Automation checks. The restart check advances every versioned Welcome disclosure before asserting native workspace restoration and isolated WebView2 profile creation, so it no longer conflates a provider network timeout with native session recovery.
+- Compatibility Lab Release builds no longer enable trimming. The previous setting produced `IL2104` warnings in Windows SDK projection assemblies; the lab is internal tooling and has no measured size requirement that justifies trimming a WinUI binary.
+- A live NuGet vulnerability query reported no known vulnerable direct or transitive packages from the configured source.
+- The local package toolchain reported that `mspdbcmf.exe` is unavailable, so it did not generate a symbols package. This does not invalidate the unsigned MSIX pipeline check, but a public release still requires a reviewed symbols/signing/provenance design.
+- The repository is public, but GitHub private vulnerability reporting is currently disabled. Public Beta remains blocked on a tested private reporting path, approved identity/versioning, framework-dependent versus self-contained packaging, signing, the independent website, exact-artifact installation/upgrade/uninstall tests, and the deferred M2/M3 acceptance evidence.
+
 ## 2026-08-24 — M3 commerce, diagnostics, and disclosure boundary
 
 ### Confirmed product decisions
