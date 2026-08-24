@@ -23,6 +23,7 @@
 | Tongyi Qianwen / 通义千问 (China) | Not tested | — | Separate regional site and profile; run A01–C observations. |
 | GLM / 智谱清言 (China) | Experimental | 2026-08-20 | Initial page and basic use were reported normal; detailed gates remain open. |
 | Z.ai (International) | Not tested | — | Separate regional site and profile; run A01–C observations. |
+| Microsoft Copilot (Personal) | Not tested | — | Run all authentication, conversation, persistence, popup, permission, external-navigation, and purchase-boundary observations. Work/education Copilot is a separate product and is not covered. |
 
 ## Initial provider sweep recorded results
 

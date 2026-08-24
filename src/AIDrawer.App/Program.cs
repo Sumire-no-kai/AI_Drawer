@@ -1,4 +1,6 @@
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+using System.Text;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.Windows.AppLifecycle;
@@ -18,7 +20,13 @@ public static class Program
         WinRT.ComWrappersSupport.InitializeComWrappers();
 
         var activationArguments = AppInstance.GetCurrent().GetActivatedEventArgs();
+#if DEBUG
+        IsStartupActivation = ResolveStartupActivation(
+            activationArguments.Kind,
+            Environment.GetEnvironmentVariable("AI_DRAWER_TEST_DATA_ROOT"));
+#else
         IsStartupActivation = activationArguments.Kind == ExtendedActivationKind.StartupTask;
+#endif
         if (RedirectToExistingInstance(activationArguments))
         {
             return 0;
@@ -36,7 +44,7 @@ public static class Program
 
     private static bool RedirectToExistingInstance(AppActivationArguments activationArguments)
     {
-        var primaryInstance = AppInstance.FindOrRegisterForKey(SingleInstanceKey);
+        var primaryInstance = AppInstance.FindOrRegisterForKey(ResolveSingleInstanceKey());
         if (primaryInstance.IsCurrent)
         {
             primaryInstance.Activated += OnActivated;
@@ -45,6 +53,43 @@ public static class Program
 
         RedirectActivation(activationArguments, primaryInstance);
         return true;
+    }
+
+    private static string ResolveSingleInstanceKey()
+    {
+#if DEBUG
+        return ResolveSingleInstanceKey(Environment.GetEnvironmentVariable("AI_DRAWER_TEST_DATA_ROOT"));
+#else
+        return SingleInstanceKey;
+#endif
+    }
+
+    internal static string ResolveSingleInstanceKey(string? testDataRoot)
+    {
+        if (string.IsNullOrWhiteSpace(testDataRoot)
+            || !Path.IsPathFullyQualified(testDataRoot))
+        {
+            return SingleInstanceKey;
+        }
+
+        var normalizedRoot = Path.GetFullPath(testDataRoot)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            .ToUpperInvariant();
+        var digest = SHA256.HashData(Encoding.UTF8.GetBytes(normalizedRoot));
+        return $"{SingleInstanceKey} Test {Convert.ToHexString(digest.AsSpan(0, 8))}";
+    }
+
+    internal static bool ResolveStartupActivation(
+        ExtendedActivationKind activationKind,
+        string? testDataRoot)
+    {
+        if (activationKind != ExtendedActivationKind.StartupTask)
+        {
+            return false;
+        }
+
+        return string.IsNullOrWhiteSpace(testDataRoot)
+            || !Path.IsPathFullyQualified(testDataRoot);
     }
 
     private static void RedirectActivation(AppActivationArguments activationArguments, AppInstance primaryInstance)

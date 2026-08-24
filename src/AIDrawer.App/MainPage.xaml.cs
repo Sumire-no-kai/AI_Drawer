@@ -6,7 +6,6 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Imaging;
 using System.Numerics;
 using Windows.System;
 using Windows.UI.ViewManagement;
@@ -21,6 +20,9 @@ public sealed partial class MainPage : Page
             ? majorRelease
             : 1);
     private const int CurrentOnboardingVersion = 2;
+    private const double HomeContentMaxWidth = 688;
+    private const double HomeSupportActionsVerticalThreshold = 420;
+    private const double ProviderChooserSingleColumnThreshold = 540;
     private readonly Dictionary<string, WorkspaceTabView> _workspaceTabViews = new(StringComparer.Ordinal);
     private readonly HashSet<string> _closingWorkspaceIds = new(StringComparer.Ordinal);
     private readonly HashSet<string> _externalPromptWorkspaceIds = new(StringComparer.Ordinal);
@@ -41,6 +43,7 @@ public sealed partial class MainPage : Page
     private bool _updatingSettingsUi;
     private bool _processingNavigationPrompts;
     private bool _sessionWasMissing;
+    private int _providerChooserColumnCount;
 
     public MainPage()
     {
@@ -621,6 +624,7 @@ public sealed partial class MainPage : Page
             VirtualKey.Number6 => 5,
             VirtualKey.Number7 => 6,
             VirtualKey.Number8 => 7,
+            VirtualKey.Number9 => 8,
             _ => -1
         };
 
@@ -1129,42 +1133,31 @@ public sealed partial class MainPage : Page
         }
 
         ProviderChooser.Children.Clear();
-        ProviderChooser.ColumnDefinitions.Clear();
-        ProviderChooser.RowDefinitions.Clear();
-        ProviderChooser.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        ProviderChooser.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var rowCount = (WorkspaceCoordinator.Providers.Count + 1) / 2;
-        for (var rowIndex = 0; rowIndex < rowCount; rowIndex++)
-        {
-            ProviderChooser.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        }
 
         for (var providerIndex = 0; providerIndex < WorkspaceCoordinator.Providers.Count; providerIndex++)
         {
             var provider = WorkspaceCoordinator.Providers[providerIndex];
             var rowContent = new Grid
             {
-                ColumnSpacing = 10,
+                ColumnSpacing = 12,
                 ColumnDefinitions =
                 {
-                    new ColumnDefinition { Width = new GridLength(32) },
                     new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
                     new ColumnDefinition { Width = GridLength.Auto }
                 }
             };
 
-            rowContent.Children.Add(CreateProviderMark(provider));
-
             var providerText = new StackPanel
             {
                 VerticalAlignment = VerticalAlignment.Center,
-                Spacing = 0,
+                Spacing = 1,
                 Children =
                 {
                     new TextBlock
                     {
                         Text = provider.DisplayName,
                         FontSize = 14,
+                        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                         TextTrimming = TextTrimming.CharacterEllipsis
                     },
                     new TextBlock
@@ -1175,20 +1168,46 @@ public sealed partial class MainPage : Page
                     }
                 }
             };
-            Grid.SetColumn(providerText, 1);
             rowContent.Children.Add(providerText);
 
-            var shortcut = new TextBlock
+            var shortcut = new Border
             {
-                Text = $"Ctrl+{providerIndex + 1}",
-                Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+                MinWidth = 46,
+                Padding = new Thickness(6, 2, 6, 2),
+                Background = (Brush)Application.Current.Resources["ControlFillColorSecondaryBrush"],
+                BorderBrush = (Brush)Application.Current.Resources["ControlStrokeColorDefaultBrush"],
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(5),
                 HorizontalAlignment = HorizontalAlignment.Right,
                 VerticalAlignment = VerticalAlignment.Center,
-                FontSize = 11,
-                Opacity = 0.72
+                Child = new TextBlock
+                {
+                    Text = $"Ctrl+{providerIndex + 1}",
+                    Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    FontSize = 10,
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+                }
             };
-            Grid.SetColumn(shortcut, 2);
-            rowContent.Children.Add(shortcut);
+
+            var affordance = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Spacing = 8,
+                VerticalAlignment = VerticalAlignment.Center,
+                Children =
+                {
+                    shortcut,
+                    new FontIcon
+                    {
+                        Glyph = "\uE76C",
+                        FontSize = 12,
+                        Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"]
+                    }
+                }
+            };
+            Grid.SetColumn(affordance, 1);
+            rowContent.Children.Add(affordance);
 
             var row = new Button
             {
@@ -1197,64 +1216,69 @@ public sealed partial class MainPage : Page
                 Content = rowContent
             };
             AutomationProperties.SetName(row, $"Open {provider.DisplayName} workspace");
+            AutomationProperties.SetHelpText(row, $"{provider.CompatibilityStatus}. Keyboard shortcut Ctrl+{providerIndex + 1}.");
+            AutomationProperties.SetPositionInSet(row, providerIndex + 1);
+            AutomationProperties.SetSizeOfSet(row, WorkspaceCoordinator.Providers.Count);
             row.Click += ProviderChoice_Click;
 
-            Grid.SetRow(row, providerIndex / 2);
-            Grid.SetColumn(row, providerIndex % 2);
             ProviderChooser.Children.Add(row);
         }
+
+        UpdateProviderChooserLayout(ProviderChooser.ActualWidth);
     }
 
-    private static FrameworkElement CreateProviderMark(ProviderDefinition provider)
+    private void ProviderChooser_SizeChanged(object sender, SizeChangedEventArgs args)
     {
-        if (provider.IconAssetUri is not null)
+        UpdateProviderChooserLayout(args.NewSize.Width);
+    }
+
+    private void RootLayout_SizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        HomeContentContainer.Width = Math.Min(args.NewSize.Width, HomeContentMaxWidth);
+    }
+
+    private void HomeSupportActions_SizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        HomeSupportActions.Orientation = args.NewSize.Width < HomeSupportActionsVerticalThreshold
+            ? Orientation.Vertical
+            : Orientation.Horizontal;
+    }
+
+    private void UpdateProviderChooserLayout(double availableWidth)
+    {
+        var columnCount = ResolveProviderChooserColumnCount(availableWidth);
+        if (_providerChooserColumnCount == columnCount
+            && ProviderChooser.RowDefinitions.Count > 0)
         {
-            var iconUri = new Uri(provider.IconAssetUri);
-            ImageSource iconSource = provider.IconAssetUri.EndsWith(".svg", StringComparison.OrdinalIgnoreCase)
-                ? new SvgImageSource(iconUri)
-                : new BitmapImage(iconUri);
-
-            if (provider.UsesMonochromeMark)
-            {
-                return new ImageIcon
-                {
-                    Width = 26,
-                    Height = 26,
-                    HorizontalAlignment = HorizontalAlignment.Left,
-                    VerticalAlignment = VerticalAlignment.Center,
-                    Foreground = (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"],
-                    Source = iconSource
-                };
-            }
-
-            return new Image
-            {
-                Width = 26,
-                Height = 26,
-                HorizontalAlignment = HorizontalAlignment.Left,
-                VerticalAlignment = VerticalAlignment.Center,
-                Source = iconSource
-            };
+            return;
         }
 
-        return new Border
+        _providerChooserColumnCount = columnCount;
+        ProviderChooser.ColumnDefinitions.Clear();
+        ProviderChooser.RowDefinitions.Clear();
+        for (var columnIndex = 0; columnIndex < columnCount; columnIndex++)
         {
-            Width = 28,
-            Height = 28,
-            HorizontalAlignment = HorizontalAlignment.Left,
-            VerticalAlignment = VerticalAlignment.Center,
-            Background = (Brush)Application.Current.Resources["ControlFillColorSecondaryBrush"],
-            CornerRadius = new CornerRadius(6),
-            Child = new TextBlock
-            {
-                Text = provider.IconFallback,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-                FontSize = provider.IconFallback.Length > 2 ? 9 : 11,
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
-            }
-        };
+            ProviderChooser.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        }
+
+        var rowCount = (ProviderChooser.Children.Count + columnCount - 1) / columnCount;
+        for (var rowIndex = 0; rowIndex < rowCount; rowIndex++)
+        {
+            ProviderChooser.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        }
+
+        for (var providerIndex = 0; providerIndex < ProviderChooser.Children.Count; providerIndex++)
+        {
+            var providerRow = (FrameworkElement)ProviderChooser.Children[providerIndex];
+            Grid.SetRow(providerRow, providerIndex / columnCount);
+            Grid.SetColumn(providerRow, providerIndex % columnCount);
+        }
     }
+
+    internal static int ResolveProviderChooserColumnCount(double availableWidth) =>
+        availableWidth > 0 && availableWidth < ProviderChooserSingleColumnThreshold
+            ? 1
+            : 2;
 
     private int GetNextWorkspaceNumber(ProviderDefinition provider)
     {

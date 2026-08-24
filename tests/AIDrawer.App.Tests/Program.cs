@@ -165,13 +165,62 @@ try
     await CheckAsync("provider catalog keeps a safe and data-driven contract", () =>
     {
         var providers = ProviderCatalog.AvailableProviders;
-        Equal(8, providers.Count);
+        Equal(9, providers.Count);
         Equal(providers.Count, providers.Select(provider => provider.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count());
         True(providers.All(provider => provider.HomeUri.Scheme == Uri.UriSchemeHttps));
         True(providers.All(provider => provider.AppDomains.Contains(provider.HomeUri.IdnHost)));
         True(providers.All(provider => provider.AppDomains.Count > 0));
         True(providers.All(provider => provider.CompatibilityStatus is not "Verified"));
         True(providers.All(provider => provider.ProfileName.StartsWith("provider-", StringComparison.Ordinal)));
+        return Task.CompletedTask;
+    });
+
+    await CheckAsync("Copilot embeds only exact reviewed personal application origins", () =>
+    {
+        var copilot = ProviderCatalog.AvailableProviders.Single(candidate => candidate.Id == "copilot");
+        Equal("Microsoft Copilot (Personal)", copilot.DisplayName);
+        Equal("Experimental", copilot.CompatibilityStatus);
+        Equal("https://copilot.microsoft.com/", copilot.HomeUri.AbsoluteUri);
+        Equal(2, copilot.AppDomains.Count);
+        True(copilot.AppDomains.Contains("copilot.microsoft.com"));
+        True(copilot.AppDomains.Contains("copilot.com"));
+        Equal(0, copilot.AuthenticationDomains.Count);
+        Equal(0, copilot.RestorePathPrefixes.Count);
+
+        Equal(NavigationDisposition.EmbedProviderApplication, copilot.ClassifyTopLevelNavigation("https://copilot.microsoft.com/"));
+        Equal(NavigationDisposition.EmbedProviderApplication, copilot.ClassifyTopLevelNavigation("https://copilot.com/"));
+        Equal(NavigationDisposition.OpenExternal, copilot.ClassifyTopLevelNavigation("https://www.copilot.com/"));
+        Equal(NavigationDisposition.OpenExternal, copilot.ClassifyTopLevelNavigation("https://copilot.cloud.microsoft/"));
+        Equal(NavigationDisposition.OpenExternal, copilot.ClassifyTopLevelNavigation("https://copilot.microsoft.com.evil.example/"));
+        Equal(NavigationDisposition.OpenExternal, copilot.ClassifyTopLevelNavigation("https://login.live.com/"));
+        Equal(NavigationDisposition.BlockUnsupported, copilot.ClassifyTopLevelNavigation("http://copilot.microsoft.com/"));
+        Equal(NavigationDisposition.BlockUnsupported, copilot.ClassifyTopLevelNavigation("https://user@copilot.microsoft.com/"));
+        Equal(NavigationDisposition.BlockUnsupported, copilot.ClassifyTopLevelNavigation("https://copilot.microsoft.com:444/"));
+        Null(copilot.CreateRestoreLocator("https://copilot.microsoft.com/chats/opaque-id"));
+        return Task.CompletedTask;
+    });
+
+    await CheckAsync("isolated data roots use isolated non-disclosing single-instance keys", () =>
+    {
+        Equal("AI Drawer", AIDrawer.Program.ResolveSingleInstanceKey(null));
+        Equal("AI Drawer", AIDrawer.Program.ResolveSingleInstanceKey("relative-test-root"));
+
+        var firstKey = AIDrawer.Program.ResolveSingleInstanceKey(@"C:\tmp\AI Drawer Tests\first");
+        var equivalentFirstKey = AIDrawer.Program.ResolveSingleInstanceKey(@"c:\TMP\AI Drawer Tests\first\");
+        var secondKey = AIDrawer.Program.ResolveSingleInstanceKey(@"C:\tmp\AI Drawer Tests\second");
+        Equal(firstKey, equivalentFirstKey);
+        False(string.Equals(firstKey, secondKey, StringComparison.Ordinal));
+        False(firstKey.Contains("AI Drawer Tests", StringComparison.OrdinalIgnoreCase));
+        True(firstKey.StartsWith("AI Drawer Test ", StringComparison.Ordinal));
+        True(AIDrawer.Program.ResolveStartupActivation(
+            Microsoft.Windows.AppLifecycle.ExtendedActivationKind.StartupTask,
+            testDataRoot: null));
+        False(AIDrawer.Program.ResolveStartupActivation(
+            Microsoft.Windows.AppLifecycle.ExtendedActivationKind.StartupTask,
+            @"C:\tmp\AI Drawer Tests\foreground"));
+        False(AIDrawer.Program.ResolveStartupActivation(
+            Microsoft.Windows.AppLifecycle.ExtendedActivationKind.Launch,
+            testDataRoot: null));
         return Task.CompletedTask;
     });
 
@@ -187,6 +236,130 @@ try
                 StringComparison.Ordinal));
 
         Null(promptCard.Attribute("Translation"));
+        return Task.CompletedTask;
+    });
+
+    await CheckAsync("home provider choices expose complete shortcuts and scoped hover feedback", () =>
+    {
+        var document = XDocument.Load(GetRepositoryPath("src", "AIDrawer.App", "MainPage.xaml"));
+        XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var providerChooser = document
+            .Descendants()
+            .Single(element => string.Equals(
+                element.Attribute(xaml + "Name")?.Value,
+                "ProviderChooser",
+                StringComparison.Ordinal));
+        var expectedResourcesByTheme = new Dictionary<string, IReadOnlyDictionary<string, string>>(StringComparer.Ordinal)
+        {
+            ["Light"] = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["ButtonBackgroundPointerOver"] = "ProviderChoiceBackgroundPointerOverBrush",
+                ["ButtonBackgroundPressed"] = "ProviderChoiceBackgroundPressedBrush",
+                ["ButtonBorderBrushPointerOver"] = "ProviderChoiceBorderPointerOverBrush",
+                ["ButtonBorderBrushPressed"] = "ProviderChoiceBorderPressedBrush"
+            },
+            ["Dark"] = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["ButtonBackgroundPointerOver"] = "ProviderChoiceBackgroundPointerOverBrush",
+                ["ButtonBackgroundPressed"] = "ProviderChoiceBackgroundPressedBrush",
+                ["ButtonBorderBrushPointerOver"] = "ProviderChoiceBorderPointerOverBrush",
+                ["ButtonBorderBrushPressed"] = "ProviderChoiceBorderPressedBrush"
+            },
+            ["HighContrast"] = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["ButtonBackgroundPointerOver"] = "ControlFillColorSecondaryBrush",
+                ["ButtonBackgroundPressed"] = "ControlFillColorTertiaryBrush",
+                ["ButtonBorderBrushPointerOver"] = "ControlStrokeColorDefaultBrush",
+                ["ButtonBorderBrushPressed"] = "ControlStrongStrokeColorDefaultBrush"
+            }
+        };
+        foreach (var (theme, expectedResources) in expectedResourcesByTheme)
+        {
+            var themeDictionary = providerChooser
+                .Descendants()
+                .Single(element => string.Equals(element.Name.LocalName, "ResourceDictionary", StringComparison.Ordinal)
+                    && string.Equals(element.Attribute(xaml + "Key")?.Value, theme, StringComparison.Ordinal));
+            foreach (var (resourceKey, expectedTarget) in expectedResources)
+            {
+                var resource = themeDictionary
+                    .Descendants()
+                    .Single(element => string.Equals(element.Attribute(xaml + "Key")?.Value, resourceKey, StringComparison.Ordinal));
+                Equal(expectedTarget, resource.Attribute("ResourceKey")?.Value);
+            }
+        }
+
+        var providerStyle = document
+            .Descendants()
+            .Single(element => string.Equals(
+                element.Attribute(xaml + "Key")?.Value,
+                "ProviderChoiceButtonStyle",
+                StringComparison.Ordinal));
+        True(providerStyle
+            .Descendants()
+            .Any(element => string.Equals(element.Attribute("Property")?.Value, "BorderThickness", StringComparison.Ordinal)
+                && string.Equals(element.Attribute("Value")?.Value, "1", StringComparison.Ordinal)));
+        False(providerStyle
+            .Descendants()
+            .Any(element => element.Attribute("Property")?.Value is "Translation" or "Shadow"));
+
+        True(document
+            .Descendants()
+            .Any(element => string.Equals(element.Name.LocalName, "KeyboardAccelerator", StringComparison.Ordinal)
+                && string.Equals(element.Attribute("Key")?.Value, "Number9", StringComparison.Ordinal)
+                && string.Equals(element.Attribute("Modifiers")?.Value, "Control", StringComparison.Ordinal)
+                && string.Equals(element.Attribute("Invoked")?.Value, "ProviderShortcut_Invoked", StringComparison.Ordinal)));
+        True(document
+            .Descendants()
+            .Any(element => string.Equals(element.Attribute("Text")?.Value, "Ctrl+1–9", StringComparison.Ordinal)));
+        True(document
+            .Descendants()
+            .Any(element => string.Equals(element.Attribute("SizeChanged")?.Value, "ProviderChooser_SizeChanged", StringComparison.Ordinal)));
+        var rootLayout = document
+            .Descendants()
+            .Single(element => string.Equals(
+                element.Attribute(xaml + "Name")?.Value,
+                "RootLayout",
+                StringComparison.Ordinal));
+        Equal("RootLayout_SizeChanged", rootLayout.Attribute("SizeChanged")?.Value);
+        var homeContentContainer = document
+            .Descendants()
+            .Single(element => string.Equals(
+                element.Attribute(xaml + "Name")?.Value,
+                "HomeContentContainer",
+                StringComparison.Ordinal));
+        Equal("688", homeContentContainer.Attribute("MaxWidth")?.Value);
+        Null(homeContentContainer.Attribute("Width"));
+        var homeTitle = document
+            .Descendants()
+            .Single(element => string.Equals(
+                element.Attribute("Text")?.Value,
+                "Where do you want to work?",
+                StringComparison.Ordinal));
+        Equal("Center", homeTitle.Attribute("TextAlignment")?.Value);
+        Equal("WrapWholeWords", homeTitle.Attribute("TextWrapping")?.Value);
+        var supportActions = document
+            .Descendants()
+            .Single(element => string.Equals(
+                element.Attribute(xaml + "Name")?.Value,
+                "HomeSupportActions",
+                StringComparison.Ordinal));
+        Equal("HomeSupportActions_SizeChanged", supportActions.Attribute("SizeChanged")?.Value);
+        Equal(1, MainPage.ResolveProviderChooserColumnCount(539));
+        Equal(2, MainPage.ResolveProviderChooserColumnCount(540));
+        Equal(2, MainPage.ResolveProviderChooserColumnCount(688));
+
+        var appProject = File.ReadAllText(GetRepositoryPath("src", "AIDrawer.App", "AIDrawer.App.csproj"));
+        False(appProject.Contains("Assets\\Providers", StringComparison.Ordinal));
+        False(Directory.Exists(GetRepositoryPath("src", "AIDrawer.App", "Assets", "Providers")));
+
+        var mainPageCode = File.ReadAllText(GetRepositoryPath("src", "AIDrawer.App", "MainPage.xaml.cs"));
+        False(mainPageCode.Contains("CreateProviderMark", StringComparison.Ordinal));
+        True(mainPageCode.Contains("Keyboard shortcut Ctrl+", StringComparison.Ordinal));
+        True(mainPageCode.Contains("Glyph = \"\\uE76C\"", StringComparison.Ordinal));
+        True(mainPageCode.Contains("VirtualKey.Number9 => 8", StringComparison.Ordinal));
+        True(mainPageCode.Contains(
+            "HomeContentContainer.Width = Math.Min(args.NewSize.Width, HomeContentMaxWidth);",
+            StringComparison.Ordinal));
         return Task.CompletedTask;
     });
 
@@ -301,6 +474,24 @@ try
                 }, TimeSpan.FromSeconds(30), "AI Drawer settings window");
 
                 var root = AutomationElement.FromHandle(process.MainWindowHandle);
+                var copilotChoice = FindByName(root, "Open Microsoft Copilot (Personal) workspace");
+                True(copilotChoice is { Current.IsEnabled: true });
+                True(copilotChoice?.Current.BoundingRectangle.Height >= 56);
+                WindowSizingProbe.Resize(
+                    process.MainWindowHandle,
+                    WindowPlacementPolicy.MinimumWidth,
+                    640);
+                await WaitUntilAsync(
+                    () => Math.Abs(root.Current.BoundingRectangle.Width - WindowPlacementPolicy.MinimumWidth) <= 2,
+                    TimeSpan.FromSeconds(5),
+                    "minimum-width provider layout");
+                AssertProviderChoicesCenteredAndVisible(root);
+                WindowSizingProbe.Resize(process.MainWindowHandle, 1180, 780);
+                await WaitUntilAsync(
+                    () => Math.Abs(root.Current.BoundingRectangle.Width - 1180) <= 2,
+                    TimeSpan.FromSeconds(5),
+                    "restored provider layout");
+                AssertProviderChoicesCenteredAndVisible(root);
                 var settingsButton = FindByName(root, "Settings")
                     ?? throw new InvalidOperationException("Settings action was not found.");
                 ((InvokePattern)settingsButton.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
@@ -592,6 +783,38 @@ static string GetRepositoryPath(params string[] segments)
     throw new DirectoryNotFoundException("Could not locate the AI Drawer repository root.");
 }
 
+static void AssertProviderChoicesCenteredAndVisible(AutomationElement root)
+{
+    var chooser = FindByName(root, "AI provider choices")
+        ?? throw new InvalidOperationException("Provider chooser was not found.");
+    var choices = chooser.FindAll(
+        TreeScope.Descendants,
+        new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button));
+    Equal(ProviderCatalog.AvailableProviders.Count, choices.Count);
+
+    var rootBounds = root.Current.BoundingRectangle;
+    foreach (AutomationElement choice in choices)
+    {
+        var bounds = choice.Current.BoundingRectangle;
+        True(bounds.Width > 0);
+        True(bounds.Left >= rootBounds.Left - 1);
+        True(bounds.Right <= rootBounds.Right + 1);
+    }
+
+    var geminiBounds = FindByName(root, "Open Gemini workspace")!.Current.BoundingRectangle;
+    var chatGptBounds = FindByName(root, "Open ChatGPT workspace")!.Current.BoundingRectangle;
+    var windowCenter = rootBounds.Left + (rootBounds.Width / 2);
+    if (Math.Abs(geminiBounds.Top - chatGptBounds.Top) <= 2)
+    {
+        var groupCenter = (geminiBounds.Left + chatGptBounds.Right) / 2;
+        True(Math.Abs(groupCenter - windowCenter) <= 2);
+        return;
+    }
+
+    True(Math.Abs(geminiBounds.Left + (geminiBounds.Width / 2) - windowCenter) <= 2);
+    True(Math.Abs(chatGptBounds.Left + (chatGptBounds.Width / 2) - windowCenter) <= 2);
+}
+
 static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout, string description)
 {
     var deadline = DateTime.UtcNow + timeout;
@@ -670,6 +893,16 @@ internal static class WindowSizingProbe
         }
     }
 
+    internal static void Resize(IntPtr windowHandle, int width, int height)
+    {
+        if (!GetWindowRect(windowHandle, out var bounds)
+            || !MoveWindow(windowHandle, bounds.Left, bounds.Top, width, height, repaint: true))
+        {
+            throw new InvalidOperationException(
+                $"Could not resize the application window (Windows error {Marshal.GetLastWin32Error()}).");
+        }
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     private struct NativePoint
     {
@@ -721,4 +954,20 @@ internal static class WindowSizingProbe
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo monitorInfo);
+
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetWindowRect(IntPtr windowHandle, out NativeRect rectangle);
+
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool MoveWindow(
+        IntPtr windowHandle,
+        int x,
+        int y,
+        int width,
+        int height,
+        [MarshalAs(UnmanagedType.Bool)] bool repaint);
 }

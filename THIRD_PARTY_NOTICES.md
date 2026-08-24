@@ -9,18 +9,7 @@ AI Drawer is licensed under the Apache License 2.0. The current development shel
 | Microsoft.Windows.SDK.BuildTools | 10.0.26100.7705 | MIT | Windows SDK and MSIX build tooling |
 | Microsoft.Windows.SDK.BuildTools.WinApp | 0.6.1 | MIT | Local packaged-app development tooling |
 
-The platform picker includes the following provider identification marks sourced from Wikimedia Commons or the provider's current official-domain site icon. These marks are used only to identify links to the providers' official sites and do not imply endorsement or affiliation.
-
-| Mark | Source | Copyright or license note |
-| --- | --- | --- |
-| ChatGPT | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:ChatGPT-Logo.svg) | Public-domain simple geometry; trademark rights may apply |
-| Google Gemini | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Google-gemini-icon.svg) | CC0 1.0; trademark rights may apply |
-| Claude | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Claude_AI_symbol.svg) | CC0 1.0; trademark rights may apply |
-| Grok | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Grok_logo_without_text.svg) | Public-domain simple geometry; trademark rights may apply |
-| DeepSeek | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:DeepSeek-icon.svg) | Expat/MIT license; trademark rights may apply |
-| Doubao | [Official site](https://www.doubao.com/) | Official-domain site icon; trademark rights may apply |
-| Qwen | [Official site](https://chat.qwen.ai/) | Official-domain site icon; trademark rights may apply |
-| GLM / 智谱清言 | [Official site](https://chatglm.cn/) | Official-domain site icon; trademark rights may apply |
+The provider picker uses plain text names and AI Drawer-owned native interaction styling. It does not bundle provider logos, product icons, favicons, or provider-brand artwork. Provider names identify the official websites that a user may choose to open and do not imply endorsement or affiliation. Any future provider graphic mark requires a new current brand-guideline review and any required written authorization before it can enter a public artifact.
 
 Microsoft Edge WebView2 is supplied through the separately installed Evergreen Runtime and is subject to the applicable Microsoft Software License Terms. It is not bundled by this repository.
 
