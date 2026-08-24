@@ -50,8 +50,12 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           dotnet build src/AIDock.CompatibilityLab/AIDock.CompatibilityLab.csproj --configuration Debug --runtime win-x64 -p:Platform=x64 --no-restore
           dotnet build src/AIDock.CompatibilityLab/AIDock.CompatibilityLab.csproj --configuration Release --runtime win-x64 -p:Platform=x64 -p:PublishReadyToRun=false --no-restore
+          dotnet build tests/AIDrawer.App.Tests/AIDrawer.App.Tests.csproj --configuration Debug --runtime win-x64 -p:Platform=x64 --no-restore
           dotnet build tests/AIDrawer.App.Tests/AIDrawer.App.Tests.csproj --configuration Release --runtime win-x64 -p:Platform=x64 -p:PublishReadyToRun=false --no-restore
 
-      - name: Run privacy-safe Core policy checks
+      - name: Run privacy-safe non-GUI policy checks
         shell: pwsh
-        run: dotnet run --project tests/AIDrawer.Core.Tests/AIDrawer.Core.Tests.csproj --configuration Release --no-restore
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          dotnet run --project tests/AIDrawer.Core.Tests/AIDrawer.Core.Tests.csproj --configuration Release --no-restore
+          & 'tests/AIDrawer.App.Tests/bin/x64/Debug/net10.0-windows10.0.26100.0/win-x64/AIDrawer.App.Tests.exe' --no-ui
