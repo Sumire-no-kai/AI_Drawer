@@ -12,6 +12,7 @@ var testRoot = Path.Combine(Path.GetTempPath(), $"AI-Drawer-SessionTests-{Guid.N
 Environment.SetEnvironmentVariable("AI_DRAWER_TEST_DATA_ROOT", testRoot);
 var appDataRoot = Path.Combine(testRoot, "AI Drawer");
 var sessionPath = Path.Combine(appDataRoot, "workspaces-v1.json");
+var settingsPath = Path.Combine(appDataRoot, "settings-v1.json");
 
 try
 {
@@ -134,6 +135,31 @@ try
         False(File.Exists($"{sessionPath}.tmp"));
     });
 
+    await CheckAsync("MVP shell settings survive a local save and load round trip", async () =>
+    {
+        var expected = new AppSettings(
+            DefaultProviderId: "chatgpt",
+            GlobalShortcut: new GlobalShortcutSettings(
+                true,
+                GlobalShortcutModifiers.Control | GlobalShortcutModifiers.Alt,
+                "Q"),
+            LaunchOnStartup: true,
+            CloseToTray: false,
+            AlwaysOnTop: true,
+            WindowPlacement: new WindowPlacementSnapshot(120, 80, 1100, 720));
+
+        await WorkspaceSessionStore.SaveSettingsAsync(expected);
+        await WorkspaceSessionStore.FlushWritesAsync();
+        var actual = await WorkspaceSessionStore.LoadSettingsAsync();
+
+        Equal(expected.DefaultProviderId, actual.DefaultProviderId);
+        Equal(expected.GlobalShortcut, actual.GlobalShortcut);
+        Equal(expected.LaunchOnStartup, actual.LaunchOnStartup);
+        Equal(expected.CloseToTray, actual.CloseToTray);
+        Equal(expected.AlwaysOnTop, actual.AlwaysOnTop);
+        Equal(expected.WindowPlacement, actual.WindowPlacement);
+    });
+
     if (runUiChecks)
     {
         await CheckAsync("a saved restricted locator restores its native workspace and isolated profile in a new application process", async () =>
@@ -200,6 +226,76 @@ try
                         $"{exception.Message} Native status: {nativeStatus ?? "unavailable"}. App-data directories: {existingDirectories}.",
                         exception);
                 }
+            }
+            finally
+            {
+                process.Refresh();
+                if (!process.HasExited && string.Equals(process.MainModule?.FileName, appPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    process.Kill(entireProcessTree: true);
+                    await process.WaitForExitAsync();
+                }
+            }
+        });
+
+        await CheckAsync("MVP shell controls apply and persist through the settings UI", async () =>
+        {
+            Directory.Delete(appDataRoot, recursive: true);
+            await WorkspaceSessionStore.SaveSettingsAsync(new AppSettings(
+                OnboardingVersion: 2,
+                GlobalShortcut: new GlobalShortcutSettings(Enabled: false),
+                CloseToTray: true,
+                AlwaysOnTop: false));
+            await WorkspaceSessionStore.FlushWritesAsync();
+            var store = new WorkspaceSessionStore();
+            await store.SaveSessionAsync([new WorkspaceTab(1)], "workspace-1", restoreExactWorkspace: false);
+
+            var appPath = GetAppPath();
+            using var process = new Process
+            {
+                StartInfo = new ProcessStartInfo(appPath)
+                {
+                    WorkingDirectory = Path.GetDirectoryName(appPath)!,
+                    UseShellExecute = false
+                }
+            };
+            process.StartInfo.Environment["AI_DRAWER_TEST_DATA_ROOT"] = testRoot;
+            True(process.Start());
+            try
+            {
+                await WaitUntilAsync(() =>
+                {
+                    process.Refresh();
+                    return process.MainWindowHandle != IntPtr.Zero;
+                }, TimeSpan.FromSeconds(30), "AI Drawer settings window");
+
+                var root = AutomationElement.FromHandle(process.MainWindowHandle);
+                var settingsButton = FindByName(root, "Settings")
+                    ?? throw new InvalidOperationException("Settings action was not found.");
+                ((InvokePattern)settingsButton.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+                await WaitUntilAsync(
+                    () => FindByName(root, "Default provider") is not null,
+                    TimeSpan.FromSeconds(10),
+                    "MVP settings controls");
+
+                True(FindByName(root, "Global shortcut") is not null);
+                True(FindByName(root, "Launch on startup") is not null);
+                True(FindByName(root, "Clear provider cache") is not null);
+                True(FindByName(root, "Reset all AI website data") is not null);
+
+                ToggleByName(root, "Always on top", ToggleState.On);
+                ToggleByName(root, "Close button behavior", ToggleState.Off);
+                await WaitUntilAsync(
+                    () => TryReadSettings(settingsPath) is { AlwaysOnTop: true, CloseToTray: false },
+                    TimeSpan.FromSeconds(10),
+                    "persisted shell settings");
+
+                True(process.CloseMainWindow());
+                await WaitUntilAsync(() =>
+                {
+                    process.Refresh();
+                    return process.HasExited;
+                }, TimeSpan.FromSeconds(15), "close-to-exit behavior");
             }
             finally
             {
@@ -391,6 +487,29 @@ static AutomationElement? FindByAutomationId(AutomationElement root, string auto
 {
     var condition = new PropertyCondition(AutomationElement.AutomationIdProperty, automationId);
     return root.FindFirst(TreeScope.Descendants, condition);
+}
+
+static void ToggleByName(AutomationElement root, string name, ToggleState expectedState)
+{
+    var element = FindByName(root, name)
+        ?? throw new InvalidOperationException($"{name} toggle was not found.");
+    var pattern = (TogglePattern)element.GetCurrentPattern(TogglePattern.Pattern);
+    if (pattern.Current.ToggleState != expectedState)
+    {
+        pattern.Toggle();
+    }
+}
+
+static AppSettings? TryReadSettings(string path)
+{
+    try
+    {
+        return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path));
+    }
+    catch
+    {
+        return null;
+    }
 }
 
 static async Task CompleteWelcomeAsync(AutomationElement root)

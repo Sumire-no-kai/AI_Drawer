@@ -2,6 +2,23 @@
 
 This is the durable development record for implementation decisions, verified behavior, limitations, and open work. It is not a release changelog. Planned behavior must not be presented as shipped or provider-compatible behavior.
 
+## 2026-08-24 — M4 native MVP settings, data controls, and download safety
+
+### Implemented behavior
+
+- Added a normalized, backwards-compatible settings model for the default provider, configurable or disabled global shortcut, packaged launch-on-startup preference, close-to-tray, always-on-top, and window placement. Window coordinates and dimensions are bounded and clamped to an available display before restore.
+- Added a focused Windows shell module that owns hotkey registration, tray/window visibility, true-exit behavior, topmost presentation, debounced placement capture, and the packaged startup-task API. Startup-task activation creates no provider workspace or WebView and does not surface an existing primary instance.
+- Separated provider disk-cache clearing from website-data reset. One-provider actions close every workspace sharing that provider profile; reset-all uses a stronger two-step confirmation, clears every known provider profile, and reports individual failures without claiming total success. Native restore locators are cleared before destructive website-data reset is attempted.
+- Added a shared download controller for main views and controlled popups. It sanitizes Windows filenames, blocks path traversal and reserved device names, bounds extreme names, avoids existing files or directories, confirms the displayed destination for every download, gives stronger executable/uncommon-file warnings, and never opens or executes the result.
+- Added the tray default-provider action and settings UI for all of the above. Existing privacy boundaries remain unchanged: the shell does not read or store prompts, responses, DOM, credentials, cookies, tokens, or payment data.
+
+### Review fixes and verification boundary
+
+- The first strict build exposed four code errors from event-sender discard naming, a nullable return mismatch, and an uninitialized Win32 error code; all were fixed before testing. Self-review then fixed download cancellation when a workspace closes during confirmation, destination disclosure for ordinary files, pathological extension length, directory-name collisions, an obsolete profile-reset path, and startup-query failure handling.
+- An initial internal package probe found that `$targetnametoken$` is not expanded inside the startup-task extension. The extension now names the actual packaged executable, and the repeated x64 MakeAppx run succeeded. The resulting dirty-source artifact remained ignored, unsigned, uninstalled, and ineligible for publication; its generated manifest contains `AIDrawerStartupTask` targeting `AIDrawer.App.exe`.
+- x64, x86, and ARM64 Debug and Release application builds completed with zero warnings and errors under warnings-as-errors. The Core harness passed 32 checks. The application harness passed ten non-GUI checks and all 13 checks with three isolated UI flows, including settings persistence and close-to-exit. A live NuGet query found no known vulnerable direct or transitive packages from the configured source.
+- UI automation used generated temporary roots and performed no provider login, prompt submission, payment navigation, package registration, or access to normal-browser data. Real provider cache/reset/download behavior, installed startup registration and hidden startup, global-shortcut conflict coverage, x86/ARM64 device execution, accessibility breadth, and the Windows 10/11 matrix remain open evidence Gates. The package tool still lacks `mspdbcmf.exe`, so no symbol package was generated.
+
 ## 2026-08-24 — M4 multi-architecture candidates and support policy
 
 ### Implemented behavior

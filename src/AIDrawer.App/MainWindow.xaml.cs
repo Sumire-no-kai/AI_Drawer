@@ -1,3 +1,4 @@
+using AIDrawer.Core;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
@@ -7,7 +8,7 @@ namespace AIDrawer;
 
 public sealed partial class MainWindow : Window
 {
-    private readonly GlobalHotKey _globalHotKey;
+    private readonly WindowsShellModule _shell;
     private bool _exitRequested;
     private bool _exitInProgress;
 
@@ -21,15 +22,21 @@ public sealed partial class MainWindow : Window
         AppWindow.Resize(new SizeInt32(1180, 780));
         AppWindow.Closing += AppWindow_Closing;
 
-        _globalHotKey = new GlobalHotKey(this, ShowAndActivate);
-        WorkspacePage.SetShortcutState(_globalHotKey.TryRegister(out var errorCode), errorCode);
+        _shell = new WindowsShellModule(this);
+        _shell.WindowPlacementChanged += WorkspacePage.UpdateWindowPlacement;
+        _shell.VisibilityChanged += WorkspacePage.SetWindowVisibility;
+        WorkspacePage.AttachShell(_shell);
+        if (Program.IsStartupActivation)
+        {
+            TrayIcon.ForceCreate();
+        }
+
+        _ = InitializeShellAsync();
     }
 
     internal void ShowAndActivate()
     {
-        WorkspacePage.SetWindowVisibility(true);
-        AppWindow.Show();
-        Activate();
+        _shell.ShowAndActivate();
     }
 
     internal async void ExitApplication()
@@ -55,18 +62,29 @@ public sealed partial class MainWindow : Window
     {
         if (_exitRequested)
         {
-            _globalHotKey.Dispose();
+            _shell.Dispose();
             TrayIcon.Dispose();
             return;
         }
 
         args.Cancel = true;
-        WorkspacePage.SetWindowVisibility(false);
-        AppWindow.Hide();
+        if (_shell.CloseToTray)
+        {
+            _shell.Hide();
+            return;
+        }
+
+        ExitApplication();
     }
 
     private void OpenFromTrayCommand_ExecuteRequested(XamlUICommand sender, ExecuteRequestedEventArgs args) =>
         ShowAndActivate();
+
+    private async void OpenDefaultProviderFromTrayCommand_ExecuteRequested(XamlUICommand sender, ExecuteRequestedEventArgs args)
+    {
+        ShowAndActivate();
+        await WorkspacePage.OpenDefaultProviderAsync();
+    }
 
     private void SettingsFromTrayCommand_ExecuteRequested(XamlUICommand sender, ExecuteRequestedEventArgs args)
     {
@@ -76,4 +94,21 @@ public sealed partial class MainWindow : Window
 
     private void ExitFromTrayCommand_ExecuteRequested(XamlUICommand sender, ExecuteRequestedEventArgs args) =>
         ExitApplication();
+
+    private async Task InitializeShellAsync()
+    {
+        try
+        {
+            var settings = await WorkspaceSessionStore.LoadSettingsAsync();
+            var registered = _shell.Apply(settings, out var errorCode);
+            WorkspacePage.SetShortcutState(
+                GlobalShortcutPolicy.Normalize(settings.GlobalShortcut),
+                registered,
+                errorCode);
+        }
+        catch (ObjectDisposedException)
+        {
+            // The window closed before the asynchronous settings read completed.
+        }
+    }
 }

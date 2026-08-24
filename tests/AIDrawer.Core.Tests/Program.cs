@@ -160,13 +160,128 @@ Check("support reminder policy rejects an invalid major release", () =>
     Throws<ArgumentOutOfRangeException>(() => _ = new SupportReminderPolicy(0));
 });
 
+Check("global shortcut defaults to Win Shift A", () =>
+{
+    var shortcut = GlobalShortcutPolicy.Normalize(null);
+    Equal(true, shortcut.Enabled);
+    Equal(GlobalShortcutModifiers.Windows | GlobalShortcutModifiers.Shift, shortcut.Modifiers);
+    Equal("A", shortcut.Key);
+    Equal("Win + Shift + A", GlobalShortcutPolicy.Format(shortcut));
+});
+
+Check("global shortcut normalizes a supported key", () =>
+{
+    var shortcut = GlobalShortcutPolicy.Normalize(new GlobalShortcutSettings(
+        true,
+        GlobalShortcutModifiers.Control | GlobalShortcutModifiers.Alt,
+        " q "));
+    Equal("Q", shortcut.Key);
+    Equal("Ctrl + Alt + Q", GlobalShortcutPolicy.Format(shortcut));
+});
+
+Check("global shortcut allows a disabled configuration", () =>
+{
+    var shortcut = GlobalShortcutPolicy.Normalize(new GlobalShortcutSettings(false, GlobalShortcutModifiers.None, string.Empty));
+    Equal(false, shortcut.Enabled);
+    Equal("Disabled", GlobalShortcutPolicy.Format(shortcut));
+});
+
+Check("global shortcut rejects an unsafe unmodified key", () =>
+{
+    Equal(false, GlobalShortcutPolicy.IsValid(new GlobalShortcutSettings(true, GlobalShortcutModifiers.Shift, "A")));
+    Equal(GlobalShortcutSettings.Default, GlobalShortcutPolicy.Normalize(
+        new GlobalShortcutSettings(true, GlobalShortcutModifiers.Shift, "A")));
+});
+
+Check("global shortcut rejects unsupported keys", () =>
+{
+    Equal(false, GlobalShortcutPolicy.IsValid(new GlobalShortcutSettings(true, GlobalShortcutModifiers.Windows, "F1")));
+    Equal(false, GlobalShortcutPolicy.IsValid(new GlobalShortcutSettings(true, GlobalShortcutModifiers.Windows, "1")));
+});
+
+Check("download policy classifies common documents", () =>
+{
+    var assessment = DownloadPolicy.Assess("report.PDF");
+    Equal("report.PDF", assessment.SafeFileName);
+    Equal(DownloadRisk.Common, assessment.Risk);
+});
+
+Check("download policy classifies executable content", () =>
+{
+    var assessment = DownloadPolicy.Assess("installer.msixbundle");
+    Equal(DownloadRisk.Executable, assessment.Risk);
+});
+
+Check("download policy classifies unknown content", () =>
+{
+    Equal(DownloadRisk.Uncommon, DownloadPolicy.Assess("archive.unknown").Risk);
+    Equal(DownloadRisk.Uncommon, DownloadPolicy.Assess("no-extension").Risk);
+});
+
+Check("download policy removes path traversal and invalid characters", () =>
+{
+    Equal("unsafe_name_.txt", DownloadPolicy.SanitizeFileName("..\\unsafe:name?.txt"));
+    Equal("download", DownloadPolicy.SanitizeFileName("..."));
+});
+
+Check("download policy protects Windows device names", () =>
+{
+    Equal("_CON.txt", DownloadPolicy.SanitizeFileName("CON.txt"));
+    Equal("_lpt9", DownloadPolicy.SanitizeFileName("lpt9"));
+});
+
+Check("download policy bounds long names while preserving an extension", () =>
+{
+    var safeName = DownloadPolicy.SanitizeFileName(new string('a', 250) + ".pdf");
+    Equal(180, safeName.Length);
+    Equal(".pdf", Path.GetExtension(safeName));
+});
+
+Check("download policy bounds a pathological long extension", () =>
+{
+    var safeName = DownloadPolicy.SanitizeFileName("a." + new string('x', 250));
+    Equal(true, safeName.Length <= 180);
+});
+
+Check("download policy supplies a fallback name", () =>
+{
+    Equal("download", DownloadPolicy.SanitizeFileName(null));
+    Equal("download", DownloadPolicy.SanitizeFileName(string.Empty));
+});
+
+Check("app settings normalize new optional fields", () =>
+{
+    var normalized = AppSettingsPolicy.Normalize(new AppSettings(
+        SuccessfulOpenCount: -3,
+        SupportReminderSnoozedUntilMajorRelease: -1,
+        DefaultProviderId: " chatgpt ",
+        GlobalShortcut: new GlobalShortcutSettings(true, GlobalShortcutModifiers.Control | GlobalShortcutModifiers.Alt, "q")));
+    Equal(0, normalized.SuccessfulOpenCount);
+    Equal(0, normalized.SupportReminderSnoozedUntilMajorRelease);
+    Equal("chatgpt", normalized.DefaultProviderId);
+    Equal("Q", normalized.GlobalShortcut?.Key);
+});
+
+Check("app settings reject an unsafe provider id", () =>
+{
+    var normalized = AppSettingsPolicy.Normalize(new AppSettings(DefaultProviderId: "../../profile"));
+    Null(normalized.DefaultProviderId);
+});
+
+Check("app settings reject an invalid window placement", () =>
+{
+    var normalized = AppSettingsPolicy.Normalize(new AppSettings(
+        WindowPlacement: new WindowPlacementSnapshot(0, 0, 100, 100)));
+    Null(normalized.WindowPlacement);
+});
+
 if (failures.Count > 0)
 {
     Console.Error.WriteLine(string.Join(Environment.NewLine, failures));
     return 1;
 }
 
-Console.WriteLine("17 core policy checks passed.");
+Console.WriteLine("32 core policy checks passed.");
 return 0;
 
 void Check(string name, Action test)

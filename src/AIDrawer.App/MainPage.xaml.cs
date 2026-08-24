@@ -29,6 +29,7 @@ public sealed partial class MainPage : Page
     private readonly List<WorkspaceTab> _workspaces = [];
     private readonly UISettings _uiSettings = new();
     private readonly WorkspaceSessionStore _sessionStore = new();
+    private WindowsShellModule? _shell;
     private WorkspaceCoordinator? _workspaceCoordinator;
     private WorkspaceTab? _activeWorkspace;
     private AppSettings _settings = new();
@@ -39,23 +40,51 @@ public sealed partial class MainPage : Page
     private string? _providerResetInProgress;
     private bool _updatingSettingsUi;
     private bool _processingNavigationPrompts;
+    private bool _sessionWasMissing;
 
     public MainPage()
     {
         InitializeComponent();
+        foreach (var key in Enumerable.Range('A', 26).Select(value => ((char)value).ToString()))
+        {
+            ShortcutKeyComboBox.Items.Add(new ComboBoxItem { Content = key, Tag = key });
+        }
     }
 
-    internal void SetShortcutState(bool registered, int errorCode)
+    internal void AttachShell(WindowsShellModule shell) => _shell = shell;
+
+    internal void SetShortcutState(
+        GlobalShortcutSettings shortcut,
+        bool registered,
+        int errorCode)
     {
-        if (registered)
+        var label = GlobalShortcutPolicy.Format(shortcut);
+        ShortcutStatusText.Text = shortcut.Enabled
+            ? registered
+                ? $"Active shortcut: {label}."
+                : $"{label} is not active (Windows error {errorCode}). Choose another combination or disable it."
+            : "The global shortcut is disabled.";
+        if (registered || !shortcut.Enabled)
         {
             return;
         }
 
         ShowStatus(
             "Global shortcut unavailable",
-            $"Win + Shift + A could not be registered (Windows error {errorCode}).",
+            $"{label} could not be registered (Windows error {errorCode}).",
             InfoBarSeverity.Warning);
+    }
+
+    internal async void UpdateWindowPlacement(WindowPlacementSnapshot placement)
+    {
+        if (_pageState is not (PageLifecycleState.Loading or PageLifecycleState.Ready)
+            || Equals(_settings.WindowPlacement, placement))
+        {
+            return;
+        }
+
+        _settings = _settings with { WindowPlacement = placement };
+        await PersistSettingsAsync();
     }
 
     internal void DisposeWorkspace()
@@ -76,6 +105,11 @@ public sealed partial class MainPage : Page
 
     internal async Task PersistAndDisposeWorkspaceAsync()
     {
+        if (_shell?.CaptureWindowPlacement() is { } placement)
+        {
+            _settings = _settings with { WindowPlacement = placement };
+        }
+
         var shouldPersist = _pageState == PageLifecycleState.Ready;
         _pageState = PageLifecycleState.ShuttingDown;
         _selectionVersion++;
@@ -116,6 +150,7 @@ public sealed partial class MainPage : Page
         ConfigureSettingsUi();
         SettingsOverlay.Visibility = Visibility.Visible;
         SettingsCloseButton.Focus(FocusState.Programmatic);
+        _ = RefreshStartupRegistrationAsync();
     }
 
     private async void MainPage_Loaded(object sender, RoutedEventArgs e)
@@ -142,7 +177,19 @@ public sealed partial class MainPage : Page
             }
         }
 
-        _workspaceCoordinator = new WorkspaceCoordinator(WebViewHost, RequestPermissionAsync, _settings.MemoryMode);
+        if (_shell is { } shell)
+        {
+            SetShortcutState(
+                GlobalShortcutPolicy.Normalize(_settings.GlobalShortcut),
+                shell.Apply(_settings, out var shortcutErrorCode),
+                shortcutErrorCode);
+        }
+
+        _workspaceCoordinator = new WorkspaceCoordinator(
+            WebViewHost,
+            RequestPermissionAsync,
+            RequestDownloadAsync,
+            _settings.MemoryMode);
         _workspaceCoordinator.StateChanged += Workspace_StateChanged;
         _workspaceCoordinator.RestoreLocatorChanged += Workspace_RestoreLocatorChanged;
         _workspaceCoordinator.LifecycleChanged += Workspace_LifecycleChanged;
@@ -175,9 +222,17 @@ public sealed partial class MainPage : Page
             }
         }
 
-        var targetWorkspaceId = _activeWorkspace?.Id ?? _workspaces.First().Id;
         _pageState = PageLifecycleState.Ready;
-        await SelectWorkspaceAsync(targetWorkspaceId);
+        if (_sessionWasMissing
+            && _activeWorkspace is { IsHome: true } newWorkspace
+            && GetConfiguredDefaultProvider() is { } defaultProvider)
+        {
+            await OpenProviderInWorkspaceAsync(newWorkspace, defaultProvider.Id);
+        }
+        else
+        {
+            await SelectWorkspaceAsync(_activeWorkspace?.Id ?? _workspaces.First().Id);
+        }
     }
 
     private void MainPage_Unloaded(object sender, RoutedEventArgs e)
@@ -595,9 +650,131 @@ public sealed partial class MainPage : Page
         }
     }
 
+    internal async Task OpenDefaultProviderAsync()
+    {
+        if (_pageState != PageLifecycleState.Ready)
+        {
+            return;
+        }
+
+        var provider = GetConfiguredDefaultProvider();
+        if (provider is null)
+        {
+            ShowStatus(
+                "No default provider selected",
+                "Choose a default provider in Settings, or select one from the AI Drawer home screen.",
+                InfoBarSeverity.Informational);
+            return;
+        }
+
+        var existingWorkspace = _workspaces.LastOrDefault(workspace =>
+            string.Equals(workspace.ProviderId, provider.Id, StringComparison.Ordinal));
+        if (existingWorkspace is not null)
+        {
+            await SelectWorkspaceAsync(existingWorkspace.Id);
+            return;
+        }
+
+        if (_activeWorkspace is { IsHome: true } homeWorkspace)
+        {
+            await OpenProviderInWorkspaceAsync(homeWorkspace, provider.Id);
+            return;
+        }
+
+        if (await CreateWorkspaceAsync() is { } workspace)
+        {
+            await OpenProviderInWorkspaceAsync(workspace, provider.Id);
+        }
+    }
+
+    private ProviderDefinition? GetConfiguredDefaultProvider() =>
+        WorkspaceCoordinator.Providers.FirstOrDefault(provider =>
+            string.Equals(provider.Id, _settings.DefaultProviderId, StringComparison.Ordinal));
+
     private async void ResetWebsiteDataMenuItem_Click(object sender, RoutedEventArgs e)
     {
         WorkspaceActionsFlyout.Hide();
+        await ResetSelectedProviderWebsiteDataAsync();
+    }
+
+    private async void ClearProviderCacheButton_Click(object sender, RoutedEventArgs e) =>
+        await ClearSelectedProviderCacheAsync();
+
+    private async void ResetProviderWebsiteDataButton_Click(object sender, RoutedEventArgs e) =>
+        await ResetSelectedProviderWebsiteDataAsync();
+
+    private async void ResetAllWebsiteDataButton_Click(object sender, RoutedEventArgs e) =>
+        await ResetAllWebsiteDataAsync();
+
+    private async Task ClearSelectedProviderCacheAsync()
+    {
+        var coordinator = _workspaceCoordinator;
+        var workspace = coordinator?.ActiveWorkspace;
+        if (_pageState != PageLifecycleState.Ready
+            || _providerResetInProgress is not null
+            || coordinator is null
+            || workspace is null
+            || !string.Equals(_activeWorkspace?.Id, workspace.WorkspaceId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var confirmation = await ShowPromptAsync(
+            $"Clear {workspace.Provider.DisplayName} cache?",
+            $"This closes all {_workspaces.Count(candidate => candidate.Provider?.Id == workspace.Provider.Id)} workspace view(s) using the shared provider profile and removes temporary disk cache. Cookies, site storage, remembered permissions, provider-hosted history, and local sign-in are preserved where WebView2 supports that separation.",
+            "Clear cache",
+            "Cancel");
+        if (!confirmation.IsPrimary)
+        {
+            return;
+        }
+
+        _providerResetInProgress = workspace.Provider.Id;
+        WorkspaceActionsButton.IsEnabled = false;
+        UpdateProviderDataSettingsUi();
+        RecoveryPanel.Visibility = Visibility.Collapsed;
+        try
+        {
+            var result = await coordinator.ClearActiveProviderCacheAsync(workspace.WorkspaceId);
+            if (result is null)
+            {
+                ShowStatus(
+                    $"{workspace.Provider.DisplayName} cache was not cleared",
+                    "The provider profile was left in place. Retry after closing any provider operation that is still active.",
+                    InfoBarSeverity.Warning);
+            }
+            else if (result.Succeeded)
+            {
+                ShowStatus(
+                    $"{workspace.Provider.DisplayName} cache cleared",
+                    "Temporary disk cache was removed. Local sign-in, cookies, site storage, and remembered permissions were preserved.",
+                    InfoBarSeverity.Success);
+            }
+            else
+            {
+                ShowProfileCleanupFailures("Cache cleanup was incomplete", result.Failures);
+            }
+        }
+        finally
+        {
+            _providerResetInProgress = null;
+            if (_pageState == PageLifecycleState.Ready
+                && ReferenceEquals(coordinator.ActiveWorkspace, workspace))
+            {
+                WorkspaceActionsButton.IsEnabled = workspace.IsLive;
+            }
+
+            UpdateProviderDataSettingsUi();
+        }
+
+        if (_pageState == PageLifecycleState.Ready && _activeWorkspace is { } activeWorkspace)
+        {
+            await SelectWorkspaceAsync(activeWorkspace.Id);
+        }
+    }
+
+    private async Task ResetSelectedProviderWebsiteDataAsync()
+    {
         var coordinator = _workspaceCoordinator;
         var workspace = coordinator?.ActiveWorkspace;
         if (_pageState != PageLifecycleState.Ready
@@ -611,19 +788,10 @@ public sealed partial class MainPage : Page
 
         var confirmation = await ShowPromptAsync(
             $"Reset {workspace.Provider.DisplayName} website data?",
-            $"This signs out all {_workspaces.Count(candidate => candidate.Provider?.Id == workspace.Provider.Id)} AI Drawer workspace(s) using this provider profile on this device and clears all of its local browsing data, including cookies, cache, site storage, remembered permissions, and browsing or download history. Your provider account and provider-hosted conversations are not deleted.",
+            $"This signs out all {_workspaces.Count(candidate => candidate.Provider?.Id == workspace.Provider.Id)} AI Drawer workspace(s) using this provider profile on this device and clears its cookies, cache, site storage, remembered permissions, and browsing or download history. Your provider account and provider-hosted conversations are not deleted.",
             "Reset website data",
             "Cancel");
-
         if (!confirmation.IsPrimary)
-        {
-            return;
-        }
-
-        if (_pageState != PageLifecycleState.Ready
-            || _providerResetInProgress is not null
-            || !ReferenceEquals(coordinator.ActiveWorkspace, workspace)
-            || !string.Equals(_activeWorkspace?.Id, workspace.WorkspaceId, StringComparison.Ordinal))
         {
             return;
         }
@@ -638,6 +806,7 @@ public sealed partial class MainPage : Page
             StringComparer.Ordinal);
         _providerResetInProgress = providerId;
         WorkspaceActionsButton.IsEnabled = false;
+        UpdateProviderDataSettingsUi();
         RecoveryPanel.Visibility = Visibility.Collapsed;
         try
         {
@@ -657,33 +826,133 @@ public sealed partial class MainPage : Page
                 return;
             }
 
-            if (_pageState != PageLifecycleState.Ready
-                || !ReferenceEquals(_workspaceCoordinator, coordinator)
-                || !ReferenceEquals(coordinator.ActiveWorkspace, workspace)
-                || !string.Equals(_activeWorkspace?.Id, workspace.WorkspaceId, StringComparison.Ordinal))
+            var result = await coordinator.ResetActiveWorkspaceAsync(workspace.WorkspaceId);
+            if (result is null)
             {
-                return;
+                ShowStatus(
+                    $"{workspace.Provider.DisplayName} data reset did not finish",
+                    "Some local website data may remain. No provider account or provider-hosted conversation was changed.",
+                    InfoBarSeverity.Error);
             }
-
-            if (!await coordinator.ResetActiveWorkspaceAsync(workspace.WorkspaceId))
+            else if (result.Succeeded)
             {
-                return;
+                ShowStatus(
+                    $"{workspace.Provider.DisplayName} website data reset",
+                    "This provider profile was cleared locally and its workspaces were signed out. Provider-hosted account data and conversations were not deleted.",
+                    InfoBarSeverity.Success);
+            }
+            else
+            {
+                ShowProfileCleanupFailures("Website-data reset was incomplete", result.Failures);
             }
         }
         finally
         {
             _providerResetInProgress = null;
-            if (_pageState == PageLifecycleState.Ready
-                && ReferenceEquals(coordinator.ActiveWorkspace, workspace))
-            {
-                WorkspaceActionsButton.IsEnabled = workspace.IsLive;
-            }
+            UpdateProviderDataSettingsUi();
         }
 
         if (_pageState == PageLifecycleState.Ready && _activeWorkspace is { } activeWorkspace)
         {
             await SelectWorkspaceAsync(activeWorkspace.Id);
         }
+    }
+
+    private async Task ResetAllWebsiteDataAsync()
+    {
+        if (_pageState != PageLifecycleState.Ready
+            || _providerResetInProgress is not null
+            || _workspaceCoordinator is not { } coordinator)
+        {
+            return;
+        }
+
+        var firstConfirmation = await ShowPromptAsync(
+            "Reset all AI website data?",
+            $"This closes all provider views and clears every known AI Drawer provider profile ({WorkspaceCoordinator.Providers.Count} profiles, {_workspaces.Count(workspace => !workspace.IsHome)} workspace(s)). All local provider sign-ins, cookies, cache, site storage, and remembered permissions are removed. Provider accounts and provider-hosted conversations are not deleted.",
+            "Review final confirmation",
+            "Cancel");
+        if (!firstConfirmation.IsPrimary)
+        {
+            return;
+        }
+
+        var finalConfirmation = await ShowPromptAsync(
+            "Confirm reset of every provider profile",
+            "This cannot be undone inside AI Drawer. You will need to sign in to each provider again on this device.",
+            "Reset all website data",
+            "Cancel");
+        if (!finalConfirmation.IsPrimary)
+        {
+            return;
+        }
+
+        var previousLocators = _workspaces.ToDictionary(
+            workspace => workspace.Id,
+            workspace => workspace.RestoreLocator,
+            StringComparer.Ordinal);
+        _providerResetInProgress = "*";
+        WorkspaceActionsButton.IsEnabled = false;
+        UpdateProviderDataSettingsUi();
+        try
+        {
+            foreach (var workspace in _workspaces)
+            {
+                workspace.SetRestoreLocator(null);
+                workspace.SuppressHomeFallbackExplanation();
+            }
+
+            if (!await PersistSessionAsync())
+            {
+                foreach (var workspace in _workspaces)
+                {
+                    workspace.SetRestoreLocator(previousLocators[workspace.Id]);
+                }
+
+                return;
+            }
+
+            var result = await coordinator.ResetAllProviderDataAsync();
+            if (result is null)
+            {
+                ShowStatus(
+                    "Website-data reset did not start",
+                    "AI Drawer could not safely open the local WebView2 environment. Existing provider data may remain.",
+                    InfoBarSeverity.Error);
+            }
+            else if (result.Succeeded)
+            {
+                ShowStatus(
+                    "All AI website data reset",
+                    "Every known provider profile was cleared locally. Provider accounts and provider-hosted conversations were not deleted.",
+                    InfoBarSeverity.Success);
+            }
+            else
+            {
+                ShowProfileCleanupFailures("Some provider profiles were not cleared", result.Failures);
+            }
+        }
+        finally
+        {
+            _providerResetInProgress = null;
+            UpdateProviderDataSettingsUi();
+        }
+
+        if (_pageState == PageLifecycleState.Ready && _activeWorkspace is { } activeWorkspace)
+        {
+            await SelectWorkspaceAsync(activeWorkspace.Id);
+        }
+    }
+
+    private void ShowProfileCleanupFailures(
+        string title,
+        IReadOnlyList<ProviderProfileCleanupFailure> failures)
+    {
+        var names = string.Join(", ", failures.Select(failure => failure.ProviderName));
+        ShowStatus(
+            title,
+            $"Local cleanup could not finish for: {names}. Some data may remain; retry after closing other applications using WebView2.",
+            InfoBarSeverity.Error);
     }
 
     private async Task<WorkspaceTab?> CreateWorkspaceAsync()
@@ -769,6 +1038,7 @@ public sealed partial class MainPage : Page
 
         var selectionVersion = ++_selectionVersion;
         _activeWorkspace = workspace;
+        UpdateProviderDataSettingsUi();
         UpdateWorkspaceTabSelection();
         HideWorkspaceActivity();
         RecoveryPanel.Visibility = Visibility.Collapsed;
@@ -1113,6 +1383,36 @@ public sealed partial class MainPage : Page
         return new PermissionDecision(result.IsPrimary, result.RememberDecision);
     }
 
+    private async Task<DownloadDecision> RequestDownloadAsync(DownloadRequest request)
+    {
+        if (_pageState != PageLifecycleState.Ready
+            || !string.Equals(_activeWorkspace?.Id, request.WorkspaceId, StringComparison.Ordinal))
+        {
+            return new DownloadDecision(false);
+        }
+
+        var executable = request.Risk == DownloadRisk.Executable;
+        var uncommon = request.Risk == DownloadRisk.Uncommon;
+        var result = await ShowPromptAsync(
+            executable
+                ? "Executable download needs confirmation"
+                : uncommon
+                    ? "Uncommon download needs confirmation"
+                    : "Confirm download",
+            executable
+                ? $"{request.ProviderName} requested '{request.SafeFileName}'. Executable files can change this device. Destination folder: {request.DestinationDirectory}. AI Drawer will only download the file through WebView2 and will never open or run it automatically. Continue only if you trust the provider and expected this file."
+                : uncommon
+                    ? $"{request.ProviderName} requested the uncommon file type '{request.SafeFileName}'. Destination folder: {request.DestinationDirectory}. Continue only if you expected this file."
+                    : $"Download '{request.SafeFileName}' from {request.ProviderName}? Destination folder: {request.DestinationDirectory}. AI Drawer will not open the file automatically.",
+            "Continue download",
+            "Cancel");
+
+        return new DownloadDecision(
+            _pageState == PageLifecycleState.Ready
+            && string.Equals(_activeWorkspace?.Id, request.WorkspaceId, StringComparison.Ordinal)
+            && result.IsPrimary);
+    }
+
     private async Task<bool> RestoreSessionWithRecoveryAsync()
     {
         while (_pageState == PageLifecycleState.Loading)
@@ -1170,6 +1470,7 @@ public sealed partial class MainPage : Page
 
         ClearRestoredWorkspaceTabs();
         var result = await _sessionStore.LoadSessionAsync();
+        _sessionWasMissing = result.Status == SessionLoadStatus.Missing;
         if (_pageState != PageLifecycleState.Loading)
         {
             return result;
@@ -1350,6 +1651,42 @@ public sealed partial class MainPage : Page
     private void ConfigureSettingsUi()
     {
         _updatingSettingsUi = true;
+        if (DefaultProviderComboBox.Items.Count == 0)
+        {
+            DefaultProviderComboBox.Items.Add(new ComboBoxItem { Content = "Home", Tag = string.Empty });
+            foreach (var provider in WorkspaceCoordinator.Providers)
+            {
+                DefaultProviderComboBox.Items.Add(new ComboBoxItem
+                {
+                    Content = $"{provider.DisplayName} — {provider.CompatibilityStatus}",
+                    Tag = provider.Id
+                });
+            }
+        }
+
+        DefaultProviderComboBox.SelectedItem = DefaultProviderComboBox.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(item => string.Equals(
+                item.Tag as string,
+                _settings.DefaultProviderId ?? string.Empty,
+                StringComparison.Ordinal))
+            ?? DefaultProviderComboBox.Items[0];
+        var shortcut = GlobalShortcutPolicy.Normalize(_settings.GlobalShortcut);
+        GlobalShortcutEnabledToggle.IsOn = shortcut.Enabled;
+        ShortcutModifiersComboBox.SelectedItem = ShortcutModifiersComboBox.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(item => Enum.TryParse<GlobalShortcutModifiers>(item.Tag as string, out var modifiers)
+                && modifiers == shortcut.Modifiers)
+            ?? ShortcutModifiersComboBox.Items[0];
+        ShortcutKeyComboBox.SelectedItem = ShortcutKeyComboBox.Items
+            .OfType<ComboBoxItem>()
+            .FirstOrDefault(item => string.Equals(item.Tag as string, shortcut.Key, StringComparison.Ordinal))
+            ?? ShortcutKeyComboBox.Items[0];
+        ShortcutModifiersComboBox.IsEnabled = shortcut.Enabled;
+        ShortcutKeyComboBox.IsEnabled = shortcut.Enabled;
+        LaunchOnStartupToggle.IsOn = _settings.LaunchOnStartup;
+        CloseToTrayToggle.IsOn = _settings.CloseToTray;
+        AlwaysOnTopToggle.IsOn = _settings.AlwaysOnTop;
         RestoreExactWorkspaceToggle.IsOn = _settings.RestoreExactWorkspace;
         MemoryModeComboBox.SelectedIndex = _settings.MemoryMode switch
         {
@@ -1360,11 +1697,131 @@ public sealed partial class MainPage : Page
         SupportDevelopmentButton.IsEnabled = true;
         SupportLinkStatusText.Text =
             "Opens a shared Buy Me a Coffee page in your browser. Contributions do not unlock AI Drawer or activate any application, AI provider, subscription, account, premium feature, or support plan.";
+        UpdateProviderDataSettingsUi();
         _updatingSettingsUi = false;
+    }
+
+    private void UpdateProviderDataSettingsUi()
+    {
+        var provider = _activeWorkspace?.Provider;
+        var affectedWorkspaceCount = provider is null
+            ? 0
+            : _workspaces.Count(workspace => string.Equals(workspace.ProviderId, provider.Id, StringComparison.Ordinal));
+        ProviderDataScopeText.Text = provider is null
+            ? "Select a provider workspace before clearing one provider profile. Reset all remains available."
+            : $"Selected profile: {provider.DisplayName}. Cache or website-data actions affect {affectedWorkspaceCount} workspace(s) sharing this provider profile.";
+        var providerActionEnabled = provider is not null && _providerResetInProgress is null;
+        ClearProviderCacheButton.IsEnabled = providerActionEnabled;
+        ResetProviderWebsiteDataButton.IsEnabled = providerActionEnabled;
+        ResetAllWebsiteDataButton.IsEnabled = _providerResetInProgress is null;
     }
 
     private void SettingsButton_Click(object sender, RoutedEventArgs e)
         => OpenSettings();
+
+    private async void DefaultProviderComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_pageState != PageLifecycleState.Ready
+            || _updatingSettingsUi
+            || DefaultProviderComboBox.SelectedItem is not ComboBoxItem { Tag: string providerId })
+        {
+            return;
+        }
+
+        _settings = _settings with
+        {
+            DefaultProviderId = string.IsNullOrEmpty(providerId) ? null : providerId
+        };
+        await PersistSettingsAsync();
+    }
+
+    private async void GlobalShortcutSetting_Changed(object sender, object e)
+    {
+        if (_pageState != PageLifecycleState.Ready
+            || _updatingSettingsUi
+            || ShortcutModifiersComboBox.SelectedItem is not ComboBoxItem { Tag: string modifierTag }
+            || ShortcutKeyComboBox.SelectedItem is not ComboBoxItem { Tag: string key }
+            || !Enum.TryParse<GlobalShortcutModifiers>(modifierTag, out var modifiers))
+        {
+            return;
+        }
+
+        var shortcut = GlobalShortcutPolicy.Normalize(new GlobalShortcutSettings(
+            GlobalShortcutEnabledToggle.IsOn,
+            modifiers,
+            key));
+        ShortcutModifiersComboBox.IsEnabled = shortcut.Enabled;
+        ShortcutKeyComboBox.IsEnabled = shortcut.Enabled;
+        _settings = _settings with { GlobalShortcut = shortcut };
+        var errorCode = 0;
+        var registered = _shell?.TryApplyShortcut(shortcut, out errorCode) ?? !shortcut.Enabled;
+        SetShortcutState(shortcut, registered, errorCode);
+        await PersistSettingsAsync();
+    }
+
+    private async void LaunchOnStartupToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_pageState != PageLifecycleState.Ready || _updatingSettingsUi || _shell is null)
+        {
+            return;
+        }
+
+        LaunchOnStartupToggle.IsEnabled = false;
+        var result = await _shell.SetLaunchOnStartupAsync(LaunchOnStartupToggle.IsOn);
+        _updatingSettingsUi = true;
+        LaunchOnStartupToggle.IsOn = result.IsEnabled;
+        LaunchOnStartupToggle.IsEnabled = result.IsAvailable
+            && result.State is not (StartupRegistrationState.DisabledByPolicy or StartupRegistrationState.DisabledByUser);
+        LaunchOnStartupStatusText.Text = result.Message;
+        _updatingSettingsUi = false;
+        _settings = _settings with { LaunchOnStartup = result.IsEnabled };
+        await PersistSettingsAsync();
+    }
+
+    private async Task RefreshStartupRegistrationAsync()
+    {
+        if (_shell is null || _pageState is not (PageLifecycleState.Loading or PageLifecycleState.Ready))
+        {
+            return;
+        }
+
+        var result = await _shell.GetStartupRegistrationAsync();
+        _updatingSettingsUi = true;
+        LaunchOnStartupToggle.IsOn = result.IsEnabled;
+        LaunchOnStartupToggle.IsEnabled = result.IsAvailable
+            && result.State is not (StartupRegistrationState.DisabledByPolicy or StartupRegistrationState.DisabledByUser);
+        LaunchOnStartupStatusText.Text = result.Message;
+        _updatingSettingsUi = false;
+        if (_settings.LaunchOnStartup != result.IsEnabled)
+        {
+            _settings = _settings with { LaunchOnStartup = result.IsEnabled };
+            await PersistSettingsAsync();
+        }
+    }
+
+    private async void CloseToTrayToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_pageState != PageLifecycleState.Ready || _updatingSettingsUi)
+        {
+            return;
+        }
+
+        _settings = _settings with { CloseToTray = CloseToTrayToggle.IsOn };
+        _shell?.SetCloseToTray(_settings.CloseToTray);
+        await PersistSettingsAsync();
+    }
+
+    private async void AlwaysOnTopToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_pageState != PageLifecycleState.Ready || _updatingSettingsUi)
+        {
+            return;
+        }
+
+        _settings = _settings with { AlwaysOnTop = AlwaysOnTopToggle.IsOn };
+        _shell?.SetAlwaysOnTop(_settings.AlwaysOnTop);
+        await PersistSettingsAsync();
+    }
 
     private void CloseSettingsButton_Click(object sender, RoutedEventArgs e) =>
         SettingsOverlay.Visibility = Visibility.Collapsed;

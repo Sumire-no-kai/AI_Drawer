@@ -196,11 +196,7 @@ internal sealed class WorkspaceSessionStore
                 return new AppSettings();
             }
 
-            return settings with
-            {
-                MemoryMode = MemoryMode.Balanced,
-                SuccessfulOpenCount = Math.Max(0, settings.SuccessfulOpenCount)
-            };
+            return AppSettingsPolicy.Normalize(settings);
         }
         catch
         {

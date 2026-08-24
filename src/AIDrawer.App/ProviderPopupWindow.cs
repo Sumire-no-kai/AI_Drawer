@@ -2,6 +2,7 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Web.WebView2.Core;
+using Windows.Foundation;
 using Windows.Graphics;
 
 namespace AIDrawer;
@@ -18,19 +19,25 @@ internal sealed class ProviderPopupWindow : IDisposable
     private readonly Action<string, string, InfoBarSeverity> _reportState;
     private readonly Action<NavigationPromptKind, Uri?> _requestNavigationPrompt;
     private readonly Action<ProviderPopupWindow> _closed;
+    private readonly string _workspaceId;
+    private readonly WebViewDownloadController _downloadController;
     private bool _disposed;
 
     private ProviderPopupWindow(
         ProviderDefinition provider,
+        string workspaceId,
         ControlledPopupKind popupKind,
         Action<string, string, InfoBarSeverity> reportState,
         Action<NavigationPromptKind, Uri?> requestNavigationPrompt,
-        Action<ProviderPopupWindow> closed)
+        Action<ProviderPopupWindow> closed,
+        WebViewDownloadController downloadController)
     {
         _provider = provider;
         _reportState = reportState;
         _requestNavigationPrompt = requestNavigationPrompt;
         _closed = closed;
+        _workspaceId = workspaceId;
+        _downloadController = downloadController;
         _window.Title = popupKind == ControlledPopupKind.Authentication
             ? $"{provider.DisplayName} sign-in"
             : provider.DisplayName;
@@ -45,12 +52,21 @@ internal sealed class ProviderPopupWindow : IDisposable
     internal static async Task<ProviderPopupWindow?> CreateAsync(
         CoreWebView2Environment environment,
         ProviderDefinition provider,
+        string workspaceId,
         ControlledPopupKind popupKind,
         Action<string, string, InfoBarSeverity> reportState,
         Action<NavigationPromptKind, Uri?> requestNavigationPrompt,
-        Action<ProviderPopupWindow> closed)
+        Action<ProviderPopupWindow> closed,
+        WebViewDownloadController downloadController)
     {
-        var popup = new ProviderPopupWindow(provider, popupKind, reportState, requestNavigationPrompt, closed);
+        var popup = new ProviderPopupWindow(
+            provider,
+            workspaceId,
+            popupKind,
+            reportState,
+            requestNavigationPrompt,
+            closed,
+            downloadController);
         try
         {
             var controllerOptions = environment.CreateCoreWebView2ControllerOptions();
@@ -204,6 +220,31 @@ internal sealed class ProviderPopupWindow : IDisposable
             args.State = CoreWebView2PermissionState.Deny;
             args.SavesInProfile = false;
         };
+
+        core.DownloadStarting += (sender, args) =>
+        {
+            var deferral = args.GetDeferral();
+            _ = PrepareDownloadAsync(args, deferral);
+        };
+    }
+
+    private async Task PrepareDownloadAsync(CoreWebView2DownloadStartingEventArgs args, Deferral deferral)
+    {
+        try
+        {
+            var allowed = !_disposed && await _downloadController.PrepareAsync(
+                _workspaceId,
+                _provider.DisplayName,
+                args);
+            if (_disposed || !allowed)
+            {
+                args.Cancel = true;
+            }
+        }
+        finally
+        {
+            deferral.Dispose();
+        }
     }
 
     private void RequestExternalNavigation(string? rawUri)

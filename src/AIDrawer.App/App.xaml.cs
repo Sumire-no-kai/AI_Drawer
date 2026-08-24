@@ -16,7 +16,10 @@ public partial class App : Application
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         _window = new MainWindow();
-        _window.Activate();
+        if (!Program.IsStartupActivation)
+        {
+            _window.Activate();
+        }
     }
 
     internal static void ActivateExistingWindow()

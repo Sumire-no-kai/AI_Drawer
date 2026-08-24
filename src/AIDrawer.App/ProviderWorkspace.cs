@@ -9,8 +9,10 @@ internal sealed class ProviderWorkspace : IDisposable
 {
     private readonly Grid _host = new();
     private readonly Func<PermissionRequest, Task<PermissionDecision>> _requestPermissionAsync;
+    private readonly WebViewDownloadController _downloadController;
     private readonly HashSet<ulong> _pendingNavigations = [];
     private readonly HashSet<long> _pendingPermissionRequests = [];
+    private readonly HashSet<long> _pendingDownloadRequests = [];
     private readonly Dictionary<CoreWebView2DownloadOperation, TypedEventHandler<CoreWebView2DownloadOperation, object>> _activeDownloads = [];
     private readonly HashSet<ProviderPopupWindow> _popupWindows = [];
     private WebView2? _webView;
@@ -18,6 +20,7 @@ internal sealed class ProviderWorkspace : IDisposable
     private Uri? _inMemoryNavigationTarget;
     private WorkspaceStateChangedEventArgs? _lastState;
     private long _nextPermissionRequestId;
+    private long _nextDownloadRequestId;
     private int _viewGeneration;
     private bool _hasCompletedInitialNavigation;
     private bool _hasCountedCurrentView;
@@ -33,7 +36,8 @@ internal sealed class ProviderWorkspace : IDisposable
         Uri? restoreLocator,
         bool keepActive,
         bool shouldExplainHomeFallback,
-        Func<PermissionRequest, Task<PermissionDecision>> requestPermissionAsync)
+        Func<PermissionRequest, Task<PermissionDecision>> requestPermissionAsync,
+        Func<DownloadRequest, Task<DownloadDecision>> requestDownloadAsync)
     {
         WorkspaceId = workspaceId;
         Provider = provider;
@@ -42,6 +46,7 @@ internal sealed class ProviderWorkspace : IDisposable
         KeepActive = keepActive;
         _shouldExplainHomeFallback = shouldExplainHomeFallback && _restoreLocator is null;
         _requestPermissionAsync = requestPermissionAsync;
+        _downloadController = new WebViewDownloadController(requestDownloadAsync);
         _host.Visibility = Visibility.Collapsed;
     }
 
@@ -70,6 +75,7 @@ internal sealed class ProviderWorkspace : IDisposable
     internal bool IsOperationProtected => _isCreatingWebView
         || _pendingNavigations.Count > 0
         || _pendingPermissionRequests.Count > 0
+        || _pendingDownloadRequests.Count > 0
         || _activeDownloads.Count > 0
         || _popupWindows.Count > 0;
 
@@ -171,43 +177,6 @@ internal sealed class ProviderWorkspace : IDisposable
             activity: WorkspaceActivity.Opening);
         CloseWebView();
         return await ActivateAsync(environment, windowIsVisible);
-    }
-
-    internal async Task<bool> ResetWebsiteDataAsync(CoreWebView2Environment environment)
-    {
-        ThrowIfDisposed();
-        CloseWebView();
-        _host.Visibility = Visibility.Collapsed;
-
-        try
-        {
-            if (!await CreateWebViewAsync(environment, navigationTarget: null))
-            {
-                return false;
-            }
-
-            var profile = _webView?.CoreWebView2?.Profile
-                ?? throw new InvalidOperationException("The provider profile could not be opened.");
-            await profile.ClearBrowsingDataAsync(CoreWebView2BrowsingDataKinds.AllProfile);
-            RaiseState(
-                $"{Provider.DisplayName} website data reset",
-                "All local browsing data was removed from this provider profile, including local sign-in, cookies, cache, site storage, remembered permissions, and browsing or download history. Your provider account and provider-hosted conversations were not deleted.",
-                InfoBarSeverity.Success);
-            return true;
-        }
-        catch (Exception exception)
-        {
-            RaiseState(
-                $"{Provider.DisplayName} data reset did not finish",
-                $"Some local website data may remain ({exception.GetType().Name}).",
-                InfoBarSeverity.Error,
-                requiresRecovery: true);
-            return false;
-        }
-        finally
-        {
-            CloseWebView();
-        }
     }
 
     internal void DisposeView()
@@ -503,11 +472,14 @@ internal sealed class ProviderWorkspace : IDisposable
             }
         };
 
-        core.DownloadStarting += (_, args) =>
+        core.DownloadStarting += (sender, args) =>
         {
             if (IsCurrent(core))
             {
-                TrackDownload(args.DownloadOperation);
+                var deferral = args.GetDeferral();
+                var requestId = ++_nextDownloadRequestId;
+                _pendingDownloadRequests.Add(requestId);
+                _ = PrepareDownloadAsync(core, args, deferral, requestId);
             }
         };
 
@@ -580,6 +552,7 @@ internal sealed class ProviderWorkspace : IDisposable
             var popup = await ProviderPopupWindow.CreateAsync(
                 environment,
                 Provider,
+                WorkspaceId,
                 popupKind,
                 (title, message, severity) => RaiseState(title, message, severity),
                 (kind, externalUri) => RequestNavigationPrompt(
@@ -592,7 +565,8 @@ internal sealed class ProviderWorkspace : IDisposable
                     {
                         OperationCompleted?.Invoke(this, EventArgs.Empty);
                     }
-                });
+                },
+                _downloadController);
             if (popup is null || !IsCurrent(sourceCore))
             {
                 popup?.Dispose();
@@ -859,6 +833,31 @@ internal sealed class ProviderWorkspace : IDisposable
         }
     }
 
+    private async Task PrepareDownloadAsync(
+        CoreWebView2 core,
+        CoreWebView2DownloadStartingEventArgs args,
+        Deferral deferral,
+        long requestId)
+    {
+        try
+        {
+            var allowed = await _downloadController.PrepareAsync(WorkspaceId, Provider.DisplayName, args);
+            if (!allowed || !IsCurrent(core))
+            {
+                args.Cancel = true;
+                return;
+            }
+
+            TrackDownload(args.DownloadOperation);
+        }
+        finally
+        {
+            _pendingDownloadRequests.Remove(requestId);
+            deferral.Dispose();
+            OperationCompleted?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
     private void StopTrackingDownload(CoreWebView2DownloadOperation operation)
     {
         if (_activeDownloads.Remove(operation, out var stateChanged))
@@ -911,6 +910,7 @@ internal sealed class ProviderWorkspace : IDisposable
         _activeDownloads.Clear();
         _pendingNavigations.Clear();
         _pendingPermissionRequests.Clear();
+        _pendingDownloadRequests.Clear();
         var view = _webView;
         _webView = null;
         try
