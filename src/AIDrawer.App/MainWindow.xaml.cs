@@ -9,6 +9,7 @@ public sealed partial class MainWindow : Window
 {
     private readonly GlobalHotKey _globalHotKey;
     private bool _exitRequested;
+    private bool _exitInProgress;
 
     public MainWindow()
     {
@@ -31,11 +32,23 @@ public sealed partial class MainWindow : Window
         Activate();
     }
 
-    internal void ExitApplication()
+    internal async void ExitApplication()
     {
-        _exitRequested = true;
-        WorkspacePage.DisposeWorkspace();
-        Close();
+        if (_exitInProgress)
+        {
+            return;
+        }
+
+        _exitInProgress = true;
+        try
+        {
+            await WorkspacePage.PersistAndDisposeWorkspaceAsync();
+        }
+        finally
+        {
+            _exitRequested = true;
+            Close();
+        }
     }
 
     private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
@@ -54,6 +67,12 @@ public sealed partial class MainWindow : Window
 
     private void OpenFromTrayCommand_ExecuteRequested(XamlUICommand sender, ExecuteRequestedEventArgs args) =>
         ShowAndActivate();
+
+    private void SettingsFromTrayCommand_ExecuteRequested(XamlUICommand sender, ExecuteRequestedEventArgs args)
+    {
+        ShowAndActivate();
+        WorkspacePage.OpenSettings();
+    }
 
     private void ExitFromTrayCommand_ExecuteRequested(XamlUICommand sender, ExecuteRequestedEventArgs args) =>
         ExitApplication();

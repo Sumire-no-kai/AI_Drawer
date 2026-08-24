@@ -14,6 +14,8 @@ public sealed partial class MainPage : Page
     private CoreWebView2Environment? _environment;
     private ProviderDefinition? _currentProvider;
     private string? _profilePath;
+    private string? _freshProfilePath;
+    private string? _freshProfileRoot;
     private DateTimeOffset _previousSampleTime;
     private TimeSpan _previousProcessorTime;
 
@@ -42,7 +44,8 @@ public sealed partial class MainPage : Page
     {
         if (_webView is not null)
         {
-            EndTest();
+            StartButton.IsEnabled = false;
+            await EndTestAsync();
             return;
         }
 
@@ -65,6 +68,8 @@ public sealed partial class MainPage : Page
             var mode = (ProfileModeBox.SelectedItem as ComboBoxItem)?.Tag?.ToString();
             _currentProvider = provider;
             _profilePath = BuildProfilePath(root, provider, mode);
+            _freshProfilePath = mode == "fresh" ? _profilePath : null;
+            _freshProfileRoot = mode == "fresh" ? root : null;
 
             Directory.CreateDirectory(_profilePath);
             ProfilePathText.Text = $"Profile: {_profilePath}";
@@ -76,14 +81,19 @@ public sealed partial class MainPage : Page
         }
         catch (Exception exception)
         {
+            var failedFreshProfilePath = _freshProfilePath;
+            var failedFreshProfileRoot = _freshProfileRoot;
             CloseWebView();
             _environment = null;
             _currentProvider = null;
             _profilePath = null;
+            _freshProfilePath = null;
+            _freshProfileRoot = null;
             ProfilePathText.Text = "Profile: not started";
             SetConfigurationEnabled(true);
             UpdateSelectedProviderUi();
             Log($"start-failed {exception.GetType().Name}");
+            await DeleteFreshProfileAfterReleaseAsync(failedFreshProfileRoot, failedFreshProfilePath);
             StartButton.IsEnabled = true;
         }
     }
@@ -123,6 +133,8 @@ public sealed partial class MainPage : Page
     private void ConfigureWebView(CoreWebView2 core, ProviderDefinition provider)
     {
         core.Settings.AreDevToolsEnabled = false;
+        core.Settings.AreHostObjectsAllowed = false;
+        core.Settings.IsWebMessageEnabled = false;
         core.Settings.IsPasswordAutosaveEnabled = false;
         core.Settings.IsGeneralAutofillEnabled = false;
 
@@ -225,17 +237,105 @@ public sealed partial class MainPage : Page
         ProfileModeBox.IsEnabled = isEnabled;
     }
 
-    private void EndTest()
+    private async Task EndTestAsync()
     {
+        var freshProfilePath = _freshProfilePath;
+        var freshProfileRoot = _freshProfileRoot;
         CloseWebView();
         _environment = null;
         _currentProvider = null;
         _profilePath = null;
+        _freshProfilePath = null;
+        _freshProfileRoot = null;
         ProfilePathText.Text = "Profile: not started";
         SetConfigurationEnabled(true);
         UpdateSelectedProviderUi();
         Log("webview-closed");
+        await DeleteFreshProfileAfterReleaseAsync(freshProfileRoot, freshProfilePath);
+        StartButton.IsEnabled = true;
     }
+
+    private async Task DeleteFreshProfileAfterReleaseAsync(string? root, string? profilePath)
+    {
+        if (string.IsNullOrWhiteSpace(root) || string.IsNullOrWhiteSpace(profilePath))
+        {
+            return;
+        }
+
+        if (!IsSafeFreshProfilePath(root, profilePath))
+        {
+            Log("fresh-profile-cleanup-skipped unsafe-path");
+            return;
+        }
+
+        for (var attempt = 1; attempt <= 12; attempt++)
+        {
+            try
+            {
+                if (Directory.Exists(profilePath))
+                {
+                    Directory.Delete(profilePath, recursive: true);
+                }
+
+                Log("fresh-profile-cleanup-complete");
+                return;
+            }
+            catch (IOException) when (attempt < 12)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(250));
+            }
+            catch (UnauthorizedAccessException)
+            {
+                Log("fresh-profile-cleanup-deferred access-denied");
+                return;
+            }
+            catch (IOException)
+            {
+                Log("fresh-profile-cleanup-deferred process-still-releasing");
+            }
+        }
+    }
+
+    private static bool IsSafeFreshProfilePath(string root, string profilePath)
+    {
+        try
+        {
+            var fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var fullProfile = Path.GetFullPath(profilePath);
+            var relative = Path.GetRelativePath(fullRoot, fullProfile);
+            if (relative.StartsWith("..", StringComparison.Ordinal)
+                || Path.IsPathRooted(relative)
+                || !Path.GetFileName(fullProfile).StartsWith("fresh-", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            var current = fullRoot;
+            if (IsReparsePoint(current))
+            {
+                return false;
+            }
+
+            foreach (var segment in relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar))
+            {
+                current = Path.Combine(current, segment);
+                if (IsReparsePoint(current))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+        catch (Exception exception) when (exception is ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    private static bool IsReparsePoint(string path) =>
+        Directory.Exists(path)
+        && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
 
     private void ClearLogButton_Click(object sender, RoutedEventArgs e) => EventLogBox.Text = string.Empty;
 
@@ -303,11 +403,16 @@ public sealed partial class MainPage : Page
         return total;
     }
 
-    private void MainPage_Unloaded(object sender, RoutedEventArgs e)
+    private async void MainPage_Unloaded(object sender, RoutedEventArgs e)
     {
+        var freshProfilePath = _freshProfilePath;
+        var freshProfileRoot = _freshProfileRoot;
         _metricsTimer.Stop();
         CloseWebView();
         _environment = null;
+        _freshProfilePath = null;
+        _freshProfileRoot = null;
+        await DeleteFreshProfileAfterReleaseAsync(freshProfileRoot, freshProfilePath);
     }
 
     private void CloseWebView()
@@ -317,7 +422,11 @@ public sealed partial class MainPage : Page
         _webView = null;
         ReloadButton.IsEnabled = false;
         RestartButton.IsEnabled = false;
-        WebViewHost?.Children.Clear();
+        if (WebViewHost is not null)
+        {
+            WebViewHost.Children.Clear();
+            WebViewHost.Children.Add(EmptyStateText);
+        }
     }
 
     private void Log(string message)

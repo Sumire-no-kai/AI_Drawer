@@ -1,10 +1,10 @@
 {
   "profiles": {
-    "AI Drawer (Package)": {
-      "commandName": "MsixPackage"
-    },
     "AI Drawer (Unpackaged)": {
       "commandName": "Project"
+    },
+    "AI Drawer (Package — registers app)": {
+      "commandName": "MsixPackage"
     }
   }
 }

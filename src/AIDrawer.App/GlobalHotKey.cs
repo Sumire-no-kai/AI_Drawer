@@ -85,21 +85,27 @@ internal sealed class GlobalHotKey : IDisposable
 
     private delegate IntPtr GetMessageHookProc(int code, IntPtr wParam, IntPtr lParam);
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool RegisterHotKey(IntPtr windowHandle, int id, uint modifiers, uint virtualKey);
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool UnregisterHotKey(IntPtr windowHandle, int id);
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll", SetLastError = true)]
     private static extern IntPtr SetWindowsHookEx(int hookType, GetMessageHookProc procedure, IntPtr moduleHandle, uint threadId);
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool UnhookWindowsHookEx(IntPtr hookHandle);
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll")]
     private static extern IntPtr CallNextHookEx(IntPtr hookHandle, int code, IntPtr wParam, IntPtr lParam);
 
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr windowHandle, out uint processId);
 }
