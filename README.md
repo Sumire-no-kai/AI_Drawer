@@ -1,7 +1,7 @@
 # AI Drawer
 
 ![Repository version](https://img.shields.io/badge/version-0.0.1--dev-181717?style=flat-square&labelColor=181717)
-![Development status](https://img.shields.io/badge/status-M2.2%20Implementation%20Under%20Verification-181717?style=flat-square&labelColor=181717)
+![Development status](https://img.shields.io/badge/status-M4%20Foundation%20Under%20Development-181717?style=flat-square&labelColor=181717)
 ![Initial platform](https://img.shields.io/badge/platform-Windows%2010%201809%2B%20%7C%2011-181717?style=flat-square&labelColor=181717)
 
 > A lightweight, privacy-respecting Windows workspace for the AI web apps you already use.
@@ -33,6 +33,8 @@ The provisionally approved interface is deliberately small: one compact workspac
 The shell now contains the **Milestone 2.2 workspace persistence and lifecycle implementation**, on top of the M2 multi-provider foundation. Native workspace identity, order, provider assignment, Keep active preference, and the selected workspace are persisted independently of live WebViews. The provisional Balanced policy keeps a bounded third live view during a five-minute grace period, then converges to two after the grace period expires and all protected operations finish. A fourth opening releases an eligible inactive WebView without deleting its native workspace; if every possible victim is completing a known navigation, permission request, or download, the new activation waits without breaking that protected operation or exceeding the hard live-view cap, then retries automatically when one finishes.
 
 M3 implementation now applies a fail-closed, exact-origin navigation boundary while currently unavailable M2 tests remain explicitly deferred rather than passed. Main workspaces, their frames, and controlled provider popups embed only reviewed HTTPS provider or authentication origins; certificate-error navigation is explicitly cancelled. Unreviewed top-level external links require native confirmation before a query- and fragment-stripped handoff to the system browser, while external frames remain blocked. Known purchase paths are cancelled and show a native explanation only: AI Drawer never opens or processes provider purchases. This does not change any provider compatibility status or establish that provider-specific authentication, external-link, billing, checkout, or payment flows have passed runtime validation.
+
+M4 work has started with a pinned .NET SDK, clean-checkout CI, privacy-safe issue templates, release-gate documentation, and a manually triggered internal MSIX candidate workflow. The current candidate is deliberately unsigned, carries a SHA-256 checksum and machine-readable source/package metadata, and is explicitly marked as ineligible for public release. It validates the packaging pipeline only: it is not an installable Public Beta, and it does not resolve signing, public identity/versioning, private vulnerability reporting, the independent website, or the deferred M2/M3 runtime Gates.
 
 For reviewed provider URL shapes, the implementation can store one current-user-encrypted restore locator containing only the exact provider HTTPS origin and an allowlisted opaque conversation path. Query parameters, fragments, authentication hosts, subdomains, custom ports, and unknown paths are rejected, and the value is revalidated before storage and use. A separate non-persisted, app-domain-only URL can preserve a safer same-process return target after WebView disposal without weakening the restart privacy boundary. ChatGPT, Claude, and Gemini currently have provisional persisted-path rules; the other provider entries intentionally fall back to provider home after restart until a safe rule is reviewed. The three-screen, versioned first-run privacy disclosure, About & Privacy surface, disabled-until-measured memory-mode selector, exact-restore control, Keep active control, local support-reminder policy, and tray Settings entry are also present.
 
@@ -153,6 +155,14 @@ The ARM64 profile produces a self-contained file-system publish directory under 
 
 Debug builds default to the repository-local unpackaged profile. In Visual Studio, select **AI Drawer (Unpackaged)**; this runs the project without installing or registering AI Drawer and does not create a Start-menu entry. The separate **AI Drawer (Package — registers app)** profile is only for deliberate MSIX testing and may require Windows Developer Mode. No installer, signing configuration, or public release artifact is included yet.
 
+To inspect the current unsigned packaging pipeline without installing or publishing anything, use a clean working tree and run:
+
+```powershell
+./tools/Build-InternalBetaCandidate.ps1 -CandidateLabel local-check
+```
+
+The script creates an ignored directory under `artifacts/beta-candidates`, verifies that the main x64 MSIX has no signature block or private-key files, and writes `SHA256SUMS.txt`, `candidate-manifest.json`, and the current known limitations. `-AllowDirtySource` is only for local development probes and is recorded in the candidate metadata. See the [Public Beta release checklist](docs/release/BETA_RELEASE_CHECKLIST.md) before treating any artifact as releasable.
+
 ## Project documents
 
 - [Product principles](PRODUCT.md)
@@ -162,10 +172,11 @@ Provider compatibility contributions must include reproducible environment detai
 
 ## Roadmap
 
-1. Complete the remaining M2.2 restart, encrypted-locator, provider-profile reset, renderer-specific recovery, popup, fresh-profile cleanup, broader accessibility, and multi-workspace lifecycle verification.
-3. Run the deferred live-view pressure comparison before enabling Low Memory or Fast Switching modes or claiming a capacity.
-4. Review safe restore patterns provider by provider; unsupported persisted patterns must continue to fail closed to provider home after restart.
-5. Complete the outstanding M0/M2 compatibility and Windows 10/11 evidence, then decide whether the M2 Gate permits entry into M3.
+1. Complete the deferred M2 restart, profile-reset, recovery, accessibility, live-view pressure, architecture, and Windows-version evidence without treating current implementation as acceptance.
+2. Finish the remaining M3 provider-specific navigation, popup, purchase-boundary, and focused runtime security verification.
+3. Resolve the M4 public product identity/version scheme, MSIX dependency model, signing path, and private vulnerability-reporting channel.
+4. Build and deploy the required independent static website from its own repository and release lifecycle.
+5. Test the exact signed Beta bytes across the approved matrix, then publish a tagged GitHub prerelease with checksums, limitations, and rollback guidance.
 
 ## Independence
 

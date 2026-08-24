@@ -1,0 +1,54 @@
+name: Provider compatibility evidence
+description: Submit bounded, reproducible compatibility evidence; a provider URL alone is not evidence.
+title: "[Provider evidence]: "
+labels:
+  - provider-compatibility
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use only non-sensitive observations. Never submit prompts, responses, page content, full sensitive URLs, account identifiers, credentials, cookies, tokens, payment data, DOM captures, or network traces. This report does not establish support by itself.
+  - type: input
+    id: commit
+    attributes:
+      label: AI Drawer commit
+      placeholder: Full commit SHA
+    validations:
+      required: true
+  - type: input
+    id: provider
+    attributes:
+      label: Provider entry
+      placeholder: Exact entry label shown by AI Drawer
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Test environment
+      description: Include Windows version/build, architecture, WebView2 Runtime, country-level region, profile mode, and non-identifying account class when relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: cases
+    attributes:
+      label: Test cases and outcomes
+      description: Record each applicable case as PASS, FAIL, BLOCKED, LIMITED, or NOT RUN and keep provider behavior separate from native-shell behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: limitations
+    attributes:
+      label: Limitations and repeatability
+      description: State what was not tested and whether the result was reproduced in another clean profile or environment.
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed prompts, responses, page content, sensitive URLs, account data, credentials, cookies, tokens, payment data, DOM captures, and network traces.
+          required: true
+        - label: I understand this report is evidence for review, not an automatic provider-support claim.
+          required: true

@@ -25,6 +25,10 @@ coverage/
 *.nupkg
 *.snupkg
 
+# Release documentation is source, not a generated Release build directory.
+!docs/release/
+!docs/release/*.md
+
 # Packaged application and installer output
 *.appx
 *.appxbundle

@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-check:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Restore maintained projects
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          dotnet restore src/AIDrawer.App/AIDrawer.App.csproj --runtime win-x64 -p:Platform=x64
+          dotnet restore src/AIDock.CompatibilityLab/AIDock.CompatibilityLab.csproj --runtime win-x64 -p:Platform=x64
+          dotnet restore tests/AIDrawer.App.Tests/AIDrawer.App.Tests.csproj --runtime win-x64 -p:Platform=x64
+          dotnet restore tests/AIDrawer.Core.Tests/AIDrawer.Core.Tests.csproj
+
+      - name: Build production app
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          dotnet build src/AIDrawer.App/AIDrawer.App.csproj --configuration Debug --runtime win-x64 -p:Platform=x64 --no-restore
+          dotnet build src/AIDrawer.App/AIDrawer.App.csproj --configuration Release --runtime win-x64 -p:Platform=x64 -p:PublishReadyToRun=false --no-restore
+
+      - name: Build compatibility and application checks
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          dotnet build src/AIDock.CompatibilityLab/AIDock.CompatibilityLab.csproj --configuration Debug --runtime win-x64 -p:Platform=x64 --no-restore
+          dotnet build src/AIDock.CompatibilityLab/AIDock.CompatibilityLab.csproj --configuration Release --runtime win-x64 -p:Platform=x64 -p:PublishReadyToRun=false --no-restore
+          dotnet build tests/AIDrawer.App.Tests/AIDrawer.App.Tests.csproj --configuration Release --runtime win-x64 -p:Platform=x64 -p:PublishReadyToRun=false --no-restore
+
+      - name: Run privacy-safe Core policy checks
+        shell: pwsh
+        run: dotnet run --project tests/AIDrawer.Core.Tests/AIDrawer.Core.Tests.csproj --configuration Release --no-restore
