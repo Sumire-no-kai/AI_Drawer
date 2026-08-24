@@ -44,6 +44,8 @@ internal sealed class WorkspaceCoordinator : IDisposable
 
     internal event EventHandler<string>? SuccessfulOpen;
 
+    internal event EventHandler<NavigationPromptRequestedEventArgs>? NavigationPromptRequested;
+
     internal IReadOnlyList<ProviderDefinition> Providers => ProviderCatalog.AvailableProviders;
 
     internal ProviderWorkspace? ActiveWorkspace { get; private set; }
@@ -98,6 +100,7 @@ internal sealed class WorkspaceCoordinator : IDisposable
                 nextWorkspace.LifecycleChanged += Workspace_LifecycleChanged;
                 nextWorkspace.SuccessfulOpen += Workspace_SuccessfulOpen;
                 nextWorkspace.ProcessFailure += Workspace_ProcessFailure;
+                nextWorkspace.NavigationPromptRequested += Workspace_NavigationPromptRequested;
                 nextWorkspace.OperationCompleted += Workspace_OperationCompleted;
                 _workspaces.Add(workspaceId, nextWorkspace);
                 _host.Children.Add(nextWorkspace.View);
@@ -217,6 +220,7 @@ internal sealed class WorkspaceCoordinator : IDisposable
             }
 
             workspace.ProcessFailure -= Workspace_ProcessFailure;
+            workspace.NavigationPromptRequested -= Workspace_NavigationPromptRequested;
             workspace.OperationCompleted -= Workspace_OperationCompleted;
             workspace.Dispose();
             _host.Children.Remove(workspace.View);
@@ -383,6 +387,9 @@ internal sealed class WorkspaceCoordinator : IDisposable
 
     private void Workspace_SuccessfulOpen(object? sender, string workspaceId) =>
         SuccessfulOpen?.Invoke(this, workspaceId);
+
+    private void Workspace_NavigationPromptRequested(object? sender, NavigationPromptRequestedEventArgs args) =>
+        NavigationPromptRequested?.Invoke(this, args);
 
     private void Workspace_OperationCompleted(object? sender, EventArgs args)
     {
@@ -626,6 +633,7 @@ internal sealed class WorkspaceCoordinator : IDisposable
         foreach (var workspace in _workspaces.Values)
         {
             workspace.ProcessFailure -= Workspace_ProcessFailure;
+            workspace.NavigationPromptRequested -= Workspace_NavigationPromptRequested;
             workspace.Dispose();
         }
 

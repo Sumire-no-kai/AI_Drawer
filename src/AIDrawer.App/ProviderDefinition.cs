@@ -33,32 +33,37 @@ internal sealed record ProviderDefinition(
     internal bool IsProviderAppUri(string? rawUri) =>
         TryCreateSafeHttpsUri(rawUri, out var uri) && IsAllowedHost(uri.IdnHost, AppDomains);
 
-    internal bool IsAllowedEmbeddedUri(string? rawUri)
-    {
-        if (!TryCreateSafeHttpsUri(rawUri, out var uri))
-        {
-            return false;
-        }
-
-        return IsAllowedHost(uri.IdnHost, AppDomains)
-            || IsAllowedHost(uri.IdnHost, AuthenticationDomains);
-    }
+    internal bool IsAuthenticationUri(string? rawUri) =>
+        TryCreateSafeHttpsUri(rawUri, out var uri) && IsAllowedHost(uri.IdnHost, AuthenticationDomains);
 
     internal bool IsKnownPurchaseUri(string? rawUri)
     {
-        if (!Uri.TryCreate(rawUri, UriKind.Absolute, out var uri))
+        return TryCreateSafeHttpsUri(rawUri, out var uri) && IsKnownPurchaseUri(uri);
+    }
+
+    internal NavigationDisposition ClassifyTopLevelNavigation(string? rawUri)
+    {
+        if (!TryCreateSafeHttpsUri(rawUri, out var uri))
         {
-            return false;
+            return NavigationDisposition.BlockUnsupported;
         }
 
-        if (IsAllowedHost(uri.IdnHost, KnownPurchaseHosts))
+        if (IsKnownPurchaseUri(uri))
         {
-            return true;
+            return NavigationDisposition.BlockPurchase;
         }
 
-        return IsAllowedHost(uri.IdnHost, AppDomains)
-            && KnownPurchasePathFragments.Any(fragment =>
-                uri.AbsolutePath.Contains(fragment, StringComparison.OrdinalIgnoreCase));
+        if (IsAllowedHost(uri.IdnHost, AppDomains))
+        {
+            return NavigationDisposition.EmbedProviderApplication;
+        }
+
+        if (IsAllowedHost(uri.IdnHost, AuthenticationDomains))
+        {
+            return NavigationDisposition.EmbedAuthentication;
+        }
+
+        return NavigationDisposition.OpenExternal;
     }
 
     internal Uri? CreateSafeExternalUri(string? rawUri)
@@ -79,19 +84,14 @@ internal sealed record ProviderDefinition(
 
     internal PopupDisposition ClassifyPopup(string? rawUri)
     {
-        if (IsKnownPurchaseUri(rawUri))
+        return ClassifyTopLevelNavigation(rawUri) switch
         {
-            return PopupDisposition.BlockPurchase;
-        }
-
-        if (IsAllowedEmbeddedUri(rawUri))
-        {
-            return PopupDisposition.OpenControlledWindow;
-        }
-
-        return CreateSafeExternalUri(rawUri) is null
-            ? PopupDisposition.BlockUnsupported
-            : PopupDisposition.OpenExternal;
+            NavigationDisposition.EmbedProviderApplication => PopupDisposition.OpenControlledProviderWindow,
+            NavigationDisposition.EmbedAuthentication => PopupDisposition.OpenControlledAuthenticationWindow,
+            NavigationDisposition.OpenExternal => PopupDisposition.OpenExternal,
+            NavigationDisposition.BlockPurchase => PopupDisposition.BlockPurchase,
+            _ => PopupDisposition.BlockUnsupported
+        };
     }
 
     internal Uri? CreateSafeInMemoryUri(string? rawUri)
@@ -127,14 +127,35 @@ internal sealed record ProviderDefinition(
         return false;
     }
 
-    private static bool IsAllowedHost(string host, IReadOnlySet<string> domains) => domains.Any(domain =>
-        string.Equals(host, domain, StringComparison.OrdinalIgnoreCase)
-        || host.EndsWith($".{domain}", StringComparison.OrdinalIgnoreCase));
+    private bool IsKnownPurchaseUri(Uri uri)
+    {
+        if (IsAllowedHost(uri.IdnHost, KnownPurchaseHosts))
+        {
+            return true;
+        }
+
+        return IsAllowedHost(uri.IdnHost, AppDomains)
+            && KnownPurchasePathFragments.Any(fragment =>
+                uri.AbsolutePath.Contains(fragment, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool IsAllowedHost(string host, IReadOnlySet<string> domains) =>
+        domains.Contains(host);
+}
+
+internal enum NavigationDisposition
+{
+    EmbedProviderApplication,
+    EmbedAuthentication,
+    OpenExternal,
+    BlockPurchase,
+    BlockUnsupported
 }
 
 internal enum PopupDisposition
 {
-    OpenControlledWindow,
+    OpenControlledProviderWindow,
+    OpenControlledAuthenticationWindow,
     OpenExternal,
     BlockPurchase,
     BlockUnsupported

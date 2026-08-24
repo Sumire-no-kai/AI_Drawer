@@ -10,6 +10,7 @@ namespace AIDock.CompatibilityLab;
 public sealed partial class MainPage : Page
 {
     private readonly DispatcherTimer _metricsTimer = new() { Interval = TimeSpan.FromSeconds(2) };
+    private readonly SanitizedDiagnosticLog _diagnosticLog = new();
     private WebView2? _webView;
     private CoreWebView2Environment? _environment;
     private ProviderDefinition? _currentProvider;
@@ -126,7 +127,7 @@ public sealed partial class MainPage : Page
         _previousProcessorTime = GetTotalProcessorTime();
         _metricsTimer.Start();
 
-        Log($"webview-ready provider={provider.Id} runtime={_environment.BrowserVersionString}");
+        Log($"webview-ready provider={provider.Id}");
         _webView.CoreWebView2.Navigate(provider.HomeUri.AbsoluteUri);
     }
 
@@ -143,11 +144,11 @@ public sealed partial class MainPage : Page
             if (provider.IsKnownPurchaseUri(args.Uri))
             {
                 args.Cancel = true;
-                Log($"purchase-navigation-blocked {SafeEventText.Origin(args.Uri)}");
+                Log("purchase-navigation-blocked");
                 return;
             }
 
-            Log($"navigation-start {SafeEventText.Origin(args.Uri)}");
+            Log($"navigation-start scheme={SafeEventText.SchemeCategory(args.Uri)}");
         };
 
         core.NavigationCompleted += (_, args) =>
@@ -160,15 +161,15 @@ public sealed partial class MainPage : Page
             if (provider.IsKnownPurchaseUri(args.Uri))
             {
                 args.Handled = true;
-                Log($"purchase-popup-blocked {SafeEventText.Origin(args.Uri)}");
+                Log("purchase-popup-blocked");
                 return;
             }
 
-            Log($"popup-request {SafeEventText.Origin(args.Uri)}");
+            Log($"popup-request scheme={SafeEventText.SchemeCategory(args.Uri)}");
         };
 
         core.PermissionRequested += (_, args) =>
-            Log($"permission-request kind={args.PermissionKind} origin={SafeEventText.Origin(args.Uri)}");
+            Log($"permission-request kind={args.PermissionKind}");
 
         core.DownloadStarting += (_, _) => Log("download-starting");
         core.ProcessFailed += (_, args) =>
@@ -337,7 +338,11 @@ public sealed partial class MainPage : Page
         Directory.Exists(path)
         && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0;
 
-    private void ClearLogButton_Click(object sender, RoutedEventArgs e) => EventLogBox.Text = string.Empty;
+    private void ClearLogButton_Click(object sender, RoutedEventArgs e)
+    {
+        _diagnosticLog.Clear();
+        EventLogBox.Text = string.Empty;
+    }
 
     private void MetricsTimer_Tick(object? sender, object e)
     {
@@ -431,7 +436,8 @@ public sealed partial class MainPage : Page
 
     private void Log(string message)
     {
-        EventLogBox.Text += $"[{DateTimeOffset.Now:HH:mm:ss}] {message}\r\n";
+        _diagnosticLog.Record(message);
+        EventLogBox.Text = _diagnosticLog.Render();
         EventLogBox.Select(EventLogBox.Text.Length, 0);
     }
 }

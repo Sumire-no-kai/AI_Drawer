@@ -531,9 +531,14 @@
                             <TextBlock Text="Balanced is the current provisional policy. Low Memory and Fast Switching remain disabled until their Windows 10/11 pressure budgets are measured." TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         </StackPanel>
                         <StackPanel Spacing="8">
-                            <TextBlock Text="About &amp; Support" FontSize="16" FontWeight="SemiBold" />
+                            <TextBlock Text="About &amp; Privacy" FontSize="16" FontWeight="SemiBold" />
                             <TextBlock Text="AI Drawer is an independent open-source shell. It is not affiliated with or endorsed by the listed AI providers." TextWrapping="Wrap" />
-                            <Button Style="{StaticResource AppSecondaryButtonStyle}" HorizontalAlignment="Left" Content="Show welcome and privacy notes" Click="ShowWelcomeButton_Click" />
+                            <TextBlock Text="Providers own authentication, subscriptions, billing, cancellations, refunds, and conversations. AI Drawer does not read prompts, responses, page content, credentials, cookies, tokens, or payment information." TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock Text="Only reviewed provider and authentication origins can be embedded. External links require confirmation before they open in your browser; known purchase routes are blocked inside AI Drawer." TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <Button Style="{StaticResource AppSecondaryButtonStyle}" HorizontalAlignment="Left" Content="Show privacy and product information" Click="ShowWelcomeButton_Click" />
+                        </StackPanel>
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Support" FontSize="16" FontWeight="SemiBold" />
                             <Button x:Name="SupportDevelopmentButton" Style="{StaticResource AppSecondaryButtonStyle}" HorizontalAlignment="Left" Content="Support Edward Lee's independent projects" Click="SupportDevelopmentButton_Click" />
                             <TextBlock x:Name="SupportLinkStatusText" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         </StackPanel>

@@ -2,7 +2,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Web.WebView2.Core;
 using Windows.Foundation;
-using Windows.System;
 
 namespace AIDrawer;
 
@@ -55,6 +54,8 @@ internal sealed class ProviderWorkspace : IDisposable
     internal event EventHandler<string>? SuccessfulOpen;
 
     internal event EventHandler<WorkspaceProcessFailureEventArgs>? ProcessFailure;
+
+    internal event EventHandler<NavigationPromptRequestedEventArgs>? NavigationPromptRequested;
 
     internal event EventHandler? OperationCompleted;
 
@@ -334,36 +335,83 @@ internal sealed class ProviderWorkspace : IDisposable
                 return;
             }
 
-            if (Provider.IsKnownPurchaseUri(args.Uri))
+            var disposition = Provider.ClassifyTopLevelNavigation(args.Uri);
+            switch (disposition)
             {
-                args.Cancel = true;
-                RaisePurchaseState();
-                return;
-            }
+                case NavigationDisposition.BlockPurchase:
+                    args.Cancel = true;
+                    RaisePurchaseState();
+                    return;
 
-            if (!Provider.IsAllowedEmbeddedUri(args.Uri))
-            {
-                args.Cancel = true;
-                _ = OpenExternalUriAsync(core, args.Uri);
-                return;
+                case NavigationDisposition.OpenExternal:
+                    args.Cancel = true;
+                    RequestExternalNavigation(args.Uri);
+                    return;
+
+                case NavigationDisposition.BlockUnsupported:
+                    args.Cancel = true;
+                    RaiseState(
+                        "Unsupported navigation blocked",
+                        "AI Drawer only embeds reviewed HTTPS provider origins and opens safe HTTPS external links in your system browser.",
+                        InfoBarSeverity.Warning);
+                    return;
             }
 
             _pendingNavigations.Add(args.NavigationId);
 
             RaiseState(
-                _hasCompletedInitialNavigation ? $"Updating {Provider.DisplayName}" : $"Opening {Provider.DisplayName}",
-                "Keeping the AI Drawer navigation available while the provider page changes.",
+                disposition == NavigationDisposition.EmbedAuthentication
+                    ? $"Continuing {Provider.DisplayName} sign-in"
+                    : _hasCompletedInitialNavigation ? $"Updating {Provider.DisplayName}" : $"Opening {Provider.DisplayName}",
+                disposition == NavigationDisposition.EmbedAuthentication
+                    ? "This is an approved authentication origin required by the provider."
+                    : "Keeping the AI Drawer navigation available while the provider page changes.",
                 InfoBarSeverity.Informational,
                 activity: _hasCompletedInitialNavigation ? WorkspaceActivity.Navigating : WorkspaceActivity.Opening);
         };
 
-        core.FrameNavigationStarting += (_, args) =>
+        core.FrameNavigationStarting += (sender, args) =>
         {
-            if (IsCurrent(core) && Provider.IsKnownPurchaseUri(args.Uri))
+            if (!IsCurrent(core) || string.Equals(args.Uri, "about:blank", StringComparison.OrdinalIgnoreCase))
             {
-                args.Cancel = true;
-                RaisePurchaseState();
+                return;
             }
+
+            switch (Provider.ClassifyTopLevelNavigation(args.Uri))
+            {
+                case NavigationDisposition.BlockPurchase:
+                    args.Cancel = true;
+                    RaisePurchaseState();
+                    return;
+
+                case NavigationDisposition.OpenExternal:
+                    args.Cancel = true;
+                    ReportExternalFrameNavigationBlocked();
+                    return;
+
+                case NavigationDisposition.BlockUnsupported:
+                    args.Cancel = true;
+                    RaiseState(
+                        "Unsupported embedded navigation blocked",
+                        "AI Drawer only embeds reviewed HTTPS provider and authentication origins.",
+                        InfoBarSeverity.Warning);
+                    return;
+            }
+        };
+
+        core.ServerCertificateErrorDetected += (_, args) =>
+        {
+            if (!IsCurrent(core))
+            {
+                return;
+            }
+
+            args.Action = CoreWebView2ServerCertificateErrorAction.Cancel;
+            RaiseState(
+                "Secure connection blocked",
+                $"Windows could not verify the certificate for {Provider.DisplayName}. AI Drawer did not continue.",
+                InfoBarSeverity.Error,
+                requiresRecovery: true);
         };
 
         core.NewWindowRequested += (sender, args) =>
@@ -373,14 +421,16 @@ internal sealed class ProviderWorkspace : IDisposable
                 return;
             }
 
-            switch (Provider.ClassifyPopup(args.Uri))
+            var popupDisposition = Provider.ClassifyPopup(args.Uri);
+            switch (popupDisposition)
             {
                 case PopupDisposition.BlockPurchase:
                     args.Handled = true;
                     RaisePurchaseState();
                     return;
 
-                case PopupDisposition.OpenControlledWindow:
+                case PopupDisposition.OpenControlledProviderWindow:
+                case PopupDisposition.OpenControlledAuthenticationWindow:
                     if (_popupWindows.Count > 0)
                     {
                         args.Handled = true;
@@ -392,12 +442,15 @@ internal sealed class ProviderWorkspace : IDisposable
                     }
 
                     var deferral = args.GetDeferral();
-                    _ = OpenProviderPopupAsync(core, environment, args, deferral);
+                    var popupKind = popupDisposition == PopupDisposition.OpenControlledAuthenticationWindow
+                        ? ControlledPopupKind.Authentication
+                        : ControlledPopupKind.ProviderApplication;
+                    _ = OpenProviderPopupAsync(core, environment, args, deferral, popupKind);
                     return;
 
                 case PopupDisposition.OpenExternal:
                     args.Handled = true;
-                    _ = OpenExternalUriAsync(core, args.Uri);
+                    RequestExternalNavigation(args.Uri);
                     return;
 
                 default:
@@ -519,14 +572,20 @@ internal sealed class ProviderWorkspace : IDisposable
         CoreWebView2 sourceCore,
         CoreWebView2Environment environment,
         CoreWebView2NewWindowRequestedEventArgs args,
-        IDisposable deferral)
+        IDisposable deferral,
+        ControlledPopupKind popupKind)
     {
         try
         {
             var popup = await ProviderPopupWindow.CreateAsync(
                 environment,
                 Provider,
+                popupKind,
                 (title, message, severity) => RaiseState(title, message, severity),
+                (kind, externalUri) => RequestNavigationPrompt(
+                    kind,
+                    externalUri,
+                    originatesFromControlledPopup: true),
                 closed =>
                 {
                     if (_popupWindows.Remove(closed))
@@ -659,58 +718,50 @@ internal sealed class ProviderWorkspace : IDisposable
         }
     }
 
-    private async Task OpenExternalUriAsync(CoreWebView2 sourceCore, string? rawUri)
+    private void RequestExternalNavigation(string? rawUri)
     {
         var externalUri = Provider.CreateSafeExternalUri(rawUri);
         if (externalUri is null)
         {
-            if (IsCurrent(sourceCore))
-            {
-                RaiseState(
-                    "Unsupported link blocked",
-                    "AI Drawer only opens safe HTTPS links in the system browser.",
-                    InfoBarSeverity.Warning);
-            }
-
-            return;
-        }
-
-        if (!IsCurrent(sourceCore))
-        {
+            RaiseState(
+                "Unsupported link blocked",
+                "AI Drawer only opens reviewed HTTPS provider origins. This link was not opened.",
+                InfoBarSeverity.Warning);
             return;
         }
 
         RaiseState(
-            "Opening link in your browser",
-            "This link is outside the selected provider workspace. Query parameters were not forwarded.",
+            "External link needs confirmation",
+            "AI Drawer did not open this unreviewed origin. You can choose whether to open a sanitized link in your browser.",
             InfoBarSeverity.Informational);
-        try
-        {
-            var launched = await Launcher.LaunchUriAsync(externalUri);
-            if (IsCurrent(sourceCore) && !launched)
-            {
-                RaiseState(
-                    "Link could not be opened",
-                    "Windows did not find an application that could open this HTTPS link.",
-                    InfoBarSeverity.Warning);
-            }
-        }
-        catch (Exception exception)
-        {
-            if (IsCurrent(sourceCore))
-            {
-                RaiseState(
-                    "Link could not be opened",
-                    $"Windows could not open this HTTPS link ({exception.GetType().Name}).",
-                    InfoBarSeverity.Warning);
-            }
-        }
+        RequestNavigationPrompt(NavigationPromptKind.ExternalLink, externalUri);
     }
 
-    private void RaisePurchaseState() => RaiseState(
-        "Subscription opens on the provider's website",
-        "AI Drawer does not provide or process subscriptions. Purchases stay with the provider.",
+    private void ReportExternalFrameNavigationBlocked() => RaiseState(
+        "External embedded navigation blocked",
+        "AI Drawer only embeds reviewed provider and authentication origins. This external frame was not opened.",
         InfoBarSeverity.Warning);
+
+    private void RaisePurchaseState()
+    {
+        RaiseState(
+            "Subscription and purchase blocked",
+            "AI Drawer does not provide or process subscriptions, billing, cancellations, refunds, or payment information.",
+            InfoBarSeverity.Warning);
+        RequestNavigationPrompt(NavigationPromptKind.PurchaseBlocked, externalUri: null);
+    }
+
+    private void RequestNavigationPrompt(
+        NavigationPromptKind kind,
+        Uri? externalUri,
+        bool originatesFromControlledPopup = false) =>
+        NavigationPromptRequested?.Invoke(
+            this,
+            new NavigationPromptRequestedEventArgs(
+                WorkspaceId,
+                kind,
+                externalUri,
+                originatesFromControlledPopup));
 
     private void SetMemoryTarget(CoreWebView2MemoryUsageTargetLevel level)
     {
@@ -943,4 +994,22 @@ internal sealed class WorkspaceStateChangedEventArgs(
     internal InfoBarSeverity Severity { get; } = severity;
     internal bool RequiresRecovery { get; } = requiresRecovery;
     internal WorkspaceActivity Activity { get; } = activity;
+}
+
+internal enum NavigationPromptKind
+{
+    ExternalLink,
+    PurchaseBlocked
+}
+
+internal sealed class NavigationPromptRequestedEventArgs(
+    string workspaceId,
+    NavigationPromptKind kind,
+    Uri? externalUri,
+    bool originatesFromControlledPopup) : EventArgs
+{
+    internal string WorkspaceId { get; } = workspaceId;
+    internal NavigationPromptKind Kind { get; } = kind;
+    internal Uri? ExternalUri { get; } = externalUri;
+    internal bool OriginatesFromControlledPopup { get; } = originatesFromControlledPopup;
 }

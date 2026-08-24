@@ -2,6 +2,41 @@
 
 This is the durable development record for implementation decisions, verified behavior, limitations, and open work. It is not a release changelog. Planned behavior must not be presented as shipped or provider-compatible behavior.
 
+## 2026-08-24 — M3 commerce, diagnostics, and disclosure boundary
+
+### Confirmed product decisions
+
+- AI Drawer does not provide a purchase handoff button and never launches a provider purchase page. A known upgrade, subscription, billing, checkout, or payment navigation remains cancelled and shows a native explanation recommending that the user independently visit the provider website in Edge, Chrome, or another trusted browser.
+- Embedded navigation uses exact reviewed HTTPS origins rather than a registrable-domain wildcard. Provider application and authentication origins are separately listed; an unreviewed subdomain is not embedded. Ordinary external top-level links require a native confirmation before opening a query- and fragment-stripped URI in the system browser. External frame navigation stays blocked, so a frame cannot trigger browser handoff.
+- Diagnostics are a development-only Compatibility Lab aid. They are bounded to 100 in-memory sanitized event codes, have no file or network output, and Release builds render no diagnostic event data. They never contain URLs, page content, credentials, cookies, tokens, payment data, or raw exception messages.
+
+### Implemented behavior
+
+- Main workspaces and controlled popups cancel external navigation before an optional native browser-confirmation dialog. Purchase navigation reports one coalesced native explanation per workspace rather than a browser handoff. The same exact-origin and purchase-first policy applies to main navigation, frames, and popups.
+- First launch now has a three-screen, keyboard-accessible disclosure flow covering independent/unofficial status, compatibility labels, global shortcut and tray behavior, local provider sessions, reset scope, external navigation, and the purchase boundary. Existing users see only the changed privacy/navigation disclosure after the onboarding version advances. The reusable Settings content is now **About & Privacy**, with Support kept separate.
+
+### Verification boundary
+
+- The production Debug application compiles with zero warnings and zero errors. Compatibility Lab Debug compilation succeeds; Release diagnostics compilation is separately checked with its output intentionally empty. Provider login, external-link, billing, checkout, payment, popup, accessibility, and browser-launch runtime behavior have not been exercised in this pass.
+- Only Gemini currently has reviewed purchase host/path patterns. No speculative purchase paths were added for other providers; their rules and runtime outcomes remain open for separately authorized compatibility testing.
+- A follow-up code review found and fixed four native-prompt issues: controlled popup requests now bring the main native prompt to the foreground even if their originating workspace is no longer selected; external confirmations are coalesced per workspace to prevent distinct URLs from building an unbounded dialog queue; one prompt-rendering failure no longer strands later queued confirmations; and external confirmation now shows the exact sanitized destination origin so consent is meaningful without displaying query data.
+
+## 2026-08-23 — M3 navigation-security foundation
+
+### Stage boundary
+
+- M3 development began with the user's explicit decision to defer the M2 tests that cannot currently be completed. This does not mark the M2 Gate as passed and does not change any provider compatibility status.
+
+### Implemented behavior
+
+- Main workspaces, their frames, controlled provider popups, and popup frames now use one typed navigation classification for reviewed provider application origins, reviewed authentication origins, safe external HTTPS handoff, known purchase blocking, and unsupported navigation. Parsed HTTPS origin validation continues to reject credentials and custom ports and uses reviewed host boundaries rather than substring matching. Controlled popups label provider application and authentication flows separately.
+- Main and controlled-popup WebViews explicitly cancel certificate-error navigation. The native state reports the failure without recording the request URL, certificate, credentials, page content, or provider data.
+
+### Verification boundary
+
+- Added deterministic policy cases for provider versus authentication classification, deceptive suffix hosts, URL credentials, custom ports, non-HTTPS schemes, known purchase routes, and removal of external query parameters and fragments. The production and test projects compile with those cases, but the application harness was not executed in this development pass.
+- This first M3 slice does not add speculative provider purchase routes. Provider-specific authentication, external-link, certificate-failure, billing, checkout, and payment behavior still requires separately approved runtime validation.
+
 ## 2026-08-23 — Deferred fourth-workspace activation
 
 ### Implemented behavior

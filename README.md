@@ -32,7 +32,9 @@ The provisionally approved interface is deliberately small: one compact workspac
 
 The shell now contains the **Milestone 2.2 workspace persistence and lifecycle implementation**, on top of the M2 multi-provider foundation. Native workspace identity, order, provider assignment, Keep active preference, and the selected workspace are persisted independently of live WebViews. The provisional Balanced policy keeps a bounded third live view during a five-minute grace period, then converges to two after the grace period expires and all protected operations finish. A fourth opening releases an eligible inactive WebView without deleting its native workspace; if every possible victim is completing a known navigation, permission request, or download, the new activation waits without breaking that protected operation or exceeding the hard live-view cap, then retries automatically when one finishes.
 
-For reviewed provider URL shapes, the implementation can store one current-user-encrypted restore locator containing only the exact provider HTTPS origin and an allowlisted opaque conversation path. Query parameters, fragments, authentication hosts, subdomains, custom ports, and unknown paths are rejected, and the value is revalidated before storage and use. A separate non-persisted, app-domain-only URL can preserve a safer same-process return target after WebView disposal without weakening the restart privacy boundary. ChatGPT, Claude, and Gemini currently have provisional persisted-path rules; the other provider entries intentionally fall back to provider home after restart until a safe rule is reviewed. The first-run privacy explanation, Settings foundation, disabled-until-measured memory-mode selector, exact-restore control, Keep active control, About & Support surface, local support-reminder policy, and tray Settings entry are also present.
+M3 implementation now applies a fail-closed, exact-origin navigation boundary while currently unavailable M2 tests remain explicitly deferred rather than passed. Main workspaces, their frames, and controlled provider popups embed only reviewed HTTPS provider or authentication origins; certificate-error navigation is explicitly cancelled. Unreviewed top-level external links require native confirmation before a query- and fragment-stripped handoff to the system browser, while external frames remain blocked. Known purchase paths are cancelled and show a native explanation only: AI Drawer never opens or processes provider purchases. This does not change any provider compatibility status or establish that provider-specific authentication, external-link, billing, checkout, or payment flows have passed runtime validation.
+
+For reviewed provider URL shapes, the implementation can store one current-user-encrypted restore locator containing only the exact provider HTTPS origin and an allowlisted opaque conversation path. Query parameters, fragments, authentication hosts, subdomains, custom ports, and unknown paths are rejected, and the value is revalidated before storage and use. A separate non-persisted, app-domain-only URL can preserve a safer same-process return target after WebView disposal without weakening the restart privacy boundary. ChatGPT, Claude, and Gemini currently have provisional persisted-path rules; the other provider entries intentionally fall back to provider home after restart until a safe rule is reviewed. The three-screen, versioned first-run privacy disclosure, About & Privacy surface, disabled-until-measured memory-mode selector, exact-restore control, Keep active control, local support-reminder policy, and tray Settings entry are also present.
 
 The optional support entry opens Edward Lee's shared [Buy Me a Coffee page](https://buymeacoffee.com/edward_lee) for independent projects. Contributions do not activate or unlock AI Drawer, provider services, subscriptions, accounts, premium features, or support plans.
 
@@ -60,6 +62,8 @@ AI Drawer is intentionally not AI middleware. Native application code must not r
 
 WebView2 still maintains ordinary browser-origin data such as cookies and local storage inside AI Drawer's application-specific profiles so that provider sessions can persist. AI Drawer does not import or reuse the user's normal Edge or Chrome profile.
 
+The Compatibility Lab can show up to 100 debug-only, in-memory sanitized event codes while investigating provider compatibility. It never stores URLs, page content, credentials, cookies, tokens, or payment information, writes no diagnostic file, and has no network diagnostics or analytics output. Release builds intentionally show no diagnostic events.
+
 ## Planned Windows MVP
 
 - global show/hide shortcut and single-instance behavior;
@@ -71,7 +75,7 @@ WebView2 still maintains ordinary browser-origin data such as cookies and local 
 - settings for shortcut, startup, tray, window, memory mode, workspace restoration, and provider-profile data controls;
 - provider cache clearing, provider website-data reset, and reset-all controls with accurate sign-out scope;
 - a disclosed Buy Me a Coffee link under About & Support, plus an infrequent local-only reminder that can be permanently dismissed;
-- safe system-browser handoff for unrelated navigation;
+- user-confirmed, sanitized system-browser handoff for unrelated navigation;
 - clear permission and compatibility states;
 - wait, reload, and same-profile restart recovery;
 - blocking and explanation of known in-app provider purchase flows;
@@ -98,7 +102,7 @@ Active normal
 - Low-memory views may continue provider scripts and network activity. Suspension remains a future measured option and is not implemented by the current Balanced policy.
 - Disposed workspaces retain only minimal native metadata and, where a provider-specific policy makes it safe, one restricted local restore locator. AI Drawer does not cache prompts, responses, DOM, or conversation content.
 - If a persisted session cannot be safely read, AI Drawer blocks session writes and offers Retry, Exit, or **Back up and continue**. The latter moves the original local session to a timestamped recovery backup before a new session can be written; it does not silently replace it with an empty layout.
-- A provider request to open an allowed app or authentication popup receives one controlled, non-persisted native window sharing the same provider profile. Known purchase popups remain blocked; unrelated safe HTTPS links continue in the system browser without query strings or fragments.
+- A provider request to open an allowed app or authentication popup receives one controlled, non-persisted native window sharing the same provider profile. Known purchase popups remain blocked; unrelated safe HTTPS links require native confirmation before a query- and fragment-stripped system-browser handoff.
 - `Low Memory`, `Balanced`, and `Fast Switching` modes will use measured live, suspended, and restoration budgets rather than one unqualified global number.
 - A released workspace must remain at least as identifiable and recoverable as an inactive Chrome tab; resource savings do not justify silently replacing it with an unrelated new context.
 
