@@ -5,6 +5,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows.Automation;
+using System.Xml.Linq;
 
 var failures = new List<string>();
 var runUiChecks = !args.Contains("--no-ui", StringComparer.OrdinalIgnoreCase);
@@ -171,6 +172,21 @@ try
         True(providers.All(provider => provider.AppDomains.Count > 0));
         True(providers.All(provider => provider.CompatibilityStatus is not "Verified"));
         True(providers.All(provider => provider.ProfileName.StartsWith("provider-", StringComparison.Ordinal)));
+        return Task.CompletedTask;
+    });
+
+    await CheckAsync("prompt card avoids independent translation", () =>
+    {
+        var document = XDocument.Load(GetRepositoryPath("src", "AIDrawer.App", "MainPage.xaml"));
+        XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var promptCard = document
+            .Descendants()
+            .Single(element => string.Equals(
+                element.Attribute(xaml + "Name")?.Value,
+                "PromptCard",
+                StringComparison.Ordinal));
+
+        Null(promptCard.Attribute("Translation"));
         return Task.CompletedTask;
     });
 
@@ -556,11 +572,25 @@ static async Task CompleteWelcomeAsync(AutomationElement root)
     }
 }
 
-static string GetAppPath() => Path.GetFullPath(Path.Combine(
-    AppContext.BaseDirectory,
-    "..", "..", "..", "..", "..", "..", "..",
+static string GetAppPath() => GetRepositoryPath(
     "src", "AIDrawer.App", "bin", "x64", "Debug",
-    "net10.0-windows10.0.26100.0", "win-x64", "AIDrawer.App.exe"));
+    "net10.0-windows10.0.26100.0", "win-x64", "AIDrawer.App.exe");
+
+static string GetRepositoryPath(params string[] segments)
+{
+    for (var directory = new DirectoryInfo(AppContext.BaseDirectory);
+         directory is not null;
+         directory = directory.Parent)
+    {
+        if (File.Exists(Path.Combine(directory.FullName, "global.json")) &&
+            File.Exists(Path.Combine(directory.FullName, "src", "AIDrawer.App", "MainPage.xaml")))
+        {
+            return Path.Combine([directory.FullName, .. segments]);
+        }
+    }
+
+    throw new DirectoryNotFoundException("Could not locate the AI Drawer repository root.");
+}
 
 static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout, string description)
 {

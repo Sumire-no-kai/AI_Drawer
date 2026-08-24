@@ -451,6 +451,8 @@
             Canvas.ZIndex="100"
             Background="{ThemeResource PromptScrimBrush}"
             Visibility="Collapsed">
+            <!-- Do not independently translate PromptCard. On high-DPI displays, this can
+                 desynchronize its rendered and pointer-hit positions. -->
             <Border
                 x:Name="PromptCard"
                 Width="420"
@@ -461,8 +463,7 @@
                 VerticalAlignment="Center"
                 Background="{ThemeResource PromptSurfaceBrush}"
                 CornerRadius="16"
-                Shadow="{StaticResource FloatingSurfaceShadow}"
-                Translation="0,0,28">
+                Shadow="{StaticResource FloatingSurfaceShadow}">
                 <StackPanel Spacing="14">
                     <TextBlock x:Name="PromptTitle" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap" />
                     <TextBlock
