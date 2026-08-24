@@ -19,7 +19,7 @@ public sealed partial class MainPage : Page
     private const int CurrentOnboardingVersion = 2;
     private readonly Dictionary<string, WorkspaceTabView> _workspaceTabViews = new(StringComparer.Ordinal);
     private readonly HashSet<string> _closingWorkspaceIds = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _externalPromptUris = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _externalPromptWorkspaceIds = new(StringComparer.Ordinal);
     private readonly Queue<NavigationPromptRequestedEventArgs> _navigationPrompts = new();
     private readonly HashSet<string> _purchasePromptWorkspaceIds = new(StringComparer.Ordinal);
     private readonly List<WorkspaceTab> _workspaces = [];
@@ -78,7 +78,7 @@ public sealed partial class MainPage : Page
         CompletePrompt(isPrimary: false);
         CompleteSessionRecovery(SessionRecoveryDecision.Exit);
         _navigationPrompts.Clear();
-        _externalPromptUris.Clear();
+        _externalPromptWorkspaceIds.Clear();
         _purchasePromptWorkspaceIds.Clear();
 
         if (shouldPersist && _settings.RestoreExactWorkspace && _workspaceCoordinator is { } coordinator)
@@ -185,7 +185,7 @@ public sealed partial class MainPage : Page
             CompletePrompt(isPrimary: false);
             CompleteSessionRecovery(SessionRecoveryDecision.Exit);
             _navigationPrompts.Clear();
-            _externalPromptUris.Clear();
+            _externalPromptWorkspaceIds.Clear();
             _purchasePromptWorkspaceIds.Clear();
             DisposeWorkspace();
             _workspaces.Clear();
@@ -268,7 +268,8 @@ public sealed partial class MainPage : Page
     private async void Workspace_NavigationPromptRequested(object? sender, NavigationPromptRequestedEventArgs args)
     {
         if (_pageState != PageLifecycleState.Ready
-            || !string.Equals(_activeWorkspace?.Id, args.WorkspaceId, StringComparison.Ordinal)
+            || (!args.OriginatesFromControlledPopup
+                && !string.Equals(_activeWorkspace?.Id, args.WorkspaceId, StringComparison.Ordinal))
             || args.Kind == NavigationPromptKind.ExternalLink && args.ExternalUri is null)
         {
             return;
@@ -281,9 +282,14 @@ public sealed partial class MainPage : Page
         }
 
         if (args.Kind == NavigationPromptKind.ExternalLink
-            && !_externalPromptUris.Add(args.ExternalUri!.AbsoluteUri))
+            && !_externalPromptWorkspaceIds.Add(args.WorkspaceId))
         {
             return;
+        }
+
+        if (args.OriginatesFromControlledPopup)
+        {
+            App.ActivateExistingWindow();
         }
 
         _navigationPrompts.Enqueue(args);
@@ -310,7 +316,8 @@ public sealed partial class MainPage : Page
                     }
 
                     if (_pageState != PageLifecycleState.Ready
-                        || !string.Equals(_activeWorkspace?.Id, request.WorkspaceId, StringComparison.Ordinal))
+                        || (!request.OriginatesFromControlledPopup
+                            && !string.Equals(_activeWorkspace?.Id, request.WorkspaceId, StringComparison.Ordinal)))
                     {
                         continue;
                     }
@@ -332,14 +339,25 @@ public sealed partial class MainPage : Page
 
                     var decision = await ShowPromptAsync(
                         "Open external link in your browser?",
-                        "This destination is outside the reviewed provider and authentication origins. AI Drawer removed query parameters and fragments before this optional browser handoff.",
+                        $"Destination: {externalUri.GetLeftPart(UriPartial.Authority)}\n\nThis destination is outside the reviewed provider and authentication origins. AI Drawer removed query parameters and fragments before this optional browser handoff.",
                         "Open in browser",
                         "Stay in AI Drawer");
                     if (decision.IsPrimary
                         && _pageState == PageLifecycleState.Ready
-                        && string.Equals(_activeWorkspace?.Id, request.WorkspaceId, StringComparison.Ordinal))
+                        && (request.OriginatesFromControlledPopup
+                            || string.Equals(_activeWorkspace?.Id, request.WorkspaceId, StringComparison.Ordinal)))
                     {
                         await LaunchExternalUriAsync(externalUri);
+                    }
+                }
+                catch (Exception exception)
+                {
+                    if (_pageState == PageLifecycleState.Ready)
+                    {
+                        ShowStatus(
+                            "Navigation confirmation could not be shown",
+                            $"The blocked navigation was kept outside AI Drawer ({exception.GetType().Name}).",
+                            InfoBarSeverity.Warning);
                     }
                 }
                 finally
@@ -348,21 +366,11 @@ public sealed partial class MainPage : Page
                     {
                         _purchasePromptWorkspaceIds.Remove(request.WorkspaceId);
                     }
-                    else if (request.ExternalUri is not null)
+                    else if (request.Kind == NavigationPromptKind.ExternalLink)
                     {
-                        _externalPromptUris.Remove(request.ExternalUri.AbsoluteUri);
+                        _externalPromptWorkspaceIds.Remove(request.WorkspaceId);
                     }
                 }
-            }
-        }
-        catch (Exception exception)
-        {
-            if (_pageState == PageLifecycleState.Ready)
-            {
-                ShowStatus(
-                    "Navigation confirmation could not be shown",
-                    $"The blocked navigation was kept outside AI Drawer ({exception.GetType().Name}).",
-                    InfoBarSeverity.Warning);
             }
         }
         finally

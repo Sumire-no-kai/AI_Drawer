@@ -582,7 +582,10 @@ internal sealed class ProviderWorkspace : IDisposable
                 Provider,
                 popupKind,
                 (title, message, severity) => RaiseState(title, message, severity),
-                RequestNavigationPrompt,
+                (kind, externalUri) => RequestNavigationPrompt(
+                    kind,
+                    externalUri,
+                    originatesFromControlledPopup: true),
                 closed =>
                 {
                     if (_popupWindows.Remove(closed))
@@ -748,10 +751,17 @@ internal sealed class ProviderWorkspace : IDisposable
         RequestNavigationPrompt(NavigationPromptKind.PurchaseBlocked, externalUri: null);
     }
 
-    private void RequestNavigationPrompt(NavigationPromptKind kind, Uri? externalUri) =>
+    private void RequestNavigationPrompt(
+        NavigationPromptKind kind,
+        Uri? externalUri,
+        bool originatesFromControlledPopup = false) =>
         NavigationPromptRequested?.Invoke(
             this,
-            new NavigationPromptRequestedEventArgs(WorkspaceId, kind, externalUri));
+            new NavigationPromptRequestedEventArgs(
+                WorkspaceId,
+                kind,
+                externalUri,
+                originatesFromControlledPopup));
 
     private void SetMemoryTarget(CoreWebView2MemoryUsageTargetLevel level)
     {
@@ -995,9 +1005,11 @@ internal enum NavigationPromptKind
 internal sealed class NavigationPromptRequestedEventArgs(
     string workspaceId,
     NavigationPromptKind kind,
-    Uri? externalUri) : EventArgs
+    Uri? externalUri,
+    bool originatesFromControlledPopup) : EventArgs
 {
     internal string WorkspaceId { get; } = workspaceId;
     internal NavigationPromptKind Kind { get; } = kind;
     internal Uri? ExternalUri { get; } = externalUri;
+    internal bool OriginatesFromControlledPopup { get; } = originatesFromControlledPopup;
 }

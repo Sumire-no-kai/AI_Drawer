@@ -19,6 +19,7 @@ This is the durable development record for implementation decisions, verified be
 
 - The production Debug application compiles with zero warnings and zero errors. Compatibility Lab Debug compilation succeeds; Release diagnostics compilation is separately checked with its output intentionally empty. Provider login, external-link, billing, checkout, payment, popup, accessibility, and browser-launch runtime behavior have not been exercised in this pass.
 - Only Gemini currently has reviewed purchase host/path patterns. No speculative purchase paths were added for other providers; their rules and runtime outcomes remain open for separately authorized compatibility testing.
+- A follow-up code review found and fixed four native-prompt issues: controlled popup requests now bring the main native prompt to the foreground even if their originating workspace is no longer selected; external confirmations are coalesced per workspace to prevent distinct URLs from building an unbounded dialog queue; one prompt-rendering failure no longer strands later queued confirmations; and external confirmation now shows the exact sanitized destination origin so consent is meaningful without displaying query data.
 
 ## 2026-08-23 — M3 navigation-security foundation
 
