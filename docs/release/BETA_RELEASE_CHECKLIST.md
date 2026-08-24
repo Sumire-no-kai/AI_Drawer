@@ -4,6 +4,8 @@ This checklist separates an internal package build from a publishable Public Bet
 
 ## Product and evidence gates
 
+- [x] Native MVP settings cover default provider, configurable shortcut, packaged startup preference, tray/exit behavior, always-on-top, and bounded window placement persistence.
+- [x] Native cache/reset-all scope and download filename/destination/caution policies are implemented with automated policy and settings-UI coverage.
 - [ ] M2 acceptance evidence is complete or the remaining scope is explicitly accepted as a documented Beta limitation.
 - [ ] M3 navigation, commerce, diagnostics, disclosure, and security-review findings are closed with focused runtime evidence.
 - [ ] Every advertised provider status is backed by the compatibility Gate; unverified entries remain clearly labelled.

@@ -13,6 +13,7 @@
     <Grid>
         <Grid.Resources>
             <XamlUICommand x:Key="OpenFromTrayCommand" ExecuteRequested="OpenFromTrayCommand_ExecuteRequested" />
+            <XamlUICommand x:Key="OpenDefaultProviderFromTrayCommand" ExecuteRequested="OpenDefaultProviderFromTrayCommand_ExecuteRequested" />
             <XamlUICommand x:Key="SettingsFromTrayCommand" ExecuteRequested="SettingsFromTrayCommand_ExecuteRequested" />
             <XamlUICommand x:Key="ExitFromTrayCommand" ExecuteRequested="ExitFromTrayCommand_ExecuteRequested" />
             <MenuFlyout x:Key="TrayContextMenu">
@@ -21,6 +22,13 @@
                     Command="{StaticResource OpenFromTrayCommand}">
                     <MenuFlyoutItem.Icon>
                         <FontIcon Glyph="&#xE8A7;" />
+                    </MenuFlyoutItem.Icon>
+                </MenuFlyoutItem>
+                <MenuFlyoutItem
+                    Text="Open default provider"
+                    Command="{StaticResource OpenDefaultProviderFromTrayCommand}">
+                    <MenuFlyoutItem.Icon>
+                        <FontIcon Glyph="&#xE8A0;" />
                     </MenuFlyoutItem.Icon>
                 </MenuFlyoutItem>
                 <MenuFlyoutItem

@@ -13,6 +13,7 @@ internal sealed class WorkspaceCoordinator : IDisposable
 
     private readonly Panel _host;
     private readonly Func<PermissionRequest, Task<PermissionDecision>> _requestPermissionAsync;
+    private readonly Func<DownloadRequest, Task<DownloadDecision>> _requestDownloadAsync;
     private readonly SemaphoreSlim _selectionLock = new(1, 1);
     private readonly CancellationTokenSource _lifetimeCancellation = new();
     private readonly Dictionary<string, ProviderWorkspace> _workspaces = new(StringComparer.Ordinal);
@@ -27,11 +28,13 @@ internal sealed class WorkspaceCoordinator : IDisposable
     internal WorkspaceCoordinator(
         Panel host,
         Func<PermissionRequest, Task<PermissionDecision>> requestPermissionAsync,
+        Func<DownloadRequest, Task<DownloadDecision>> requestDownloadAsync,
         MemoryMode memoryMode)
     {
         _host = host;
         _lifecyclePolicy = CreateLifecyclePolicy(memoryMode);
         _requestPermissionAsync = requestPermissionAsync;
+        _requestDownloadAsync = requestDownloadAsync;
         _lifecycleTimer.Tick += LifecycleTimer_Tick;
         _lifecycleTimer.Start();
     }
@@ -94,7 +97,8 @@ internal sealed class WorkspaceCoordinator : IDisposable
                     restoreLocator,
                     keepActive,
                     shouldExplainHomeFallback,
-                    _requestPermissionAsync);
+                    _requestPermissionAsync,
+                    _requestDownloadAsync);
                 nextWorkspace.StateChanged += Workspace_StateChanged;
                 nextWorkspace.RestoreLocatorChanged += Workspace_RestoreLocatorChanged;
                 nextWorkspace.LifecycleChanged += Workspace_LifecycleChanged;
@@ -271,7 +275,13 @@ internal sealed class WorkspaceCoordinator : IDisposable
         }
     }
 
-    internal async Task<bool> ResetActiveWorkspaceAsync(string expectedWorkspaceId)
+    internal Task<ProviderProfileCleanupBatchResult?> ClearActiveProviderCacheAsync(string expectedWorkspaceId) =>
+        ClearActiveProviderDataAsync(expectedWorkspaceId, CoreWebView2BrowsingDataKinds.DiskCache, clearNavigationTargets: false);
+
+    internal Task<ProviderProfileCleanupBatchResult?> ResetActiveWorkspaceAsync(string expectedWorkspaceId) =>
+        ClearActiveProviderDataAsync(expectedWorkspaceId, CoreWebView2BrowsingDataKinds.AllProfile, clearNavigationTargets: true);
+
+    internal async Task<ProviderProfileCleanupBatchResult?> ResetAllProviderDataAsync()
     {
         try
         {
@@ -279,7 +289,49 @@ internal sealed class WorkspaceCoordinator : IDisposable
         }
         catch (OperationCanceledException)
         {
-            return false;
+            return null;
+        }
+
+        try
+        {
+            if (_disposed)
+            {
+                return null;
+            }
+
+            foreach (var workspace in _workspaces.Values)
+            {
+                workspace.DisposeView();
+                workspace.ClearNavigationTargets();
+            }
+
+            var environment = await GetEnvironmentAsync(ActiveWorkspace);
+            if (environment is null || _disposed)
+            {
+                return null;
+            }
+
+            var cleaner = new ProviderProfileDataCleaner(_host, environment);
+            return await cleaner.ClearAsync(Providers, CoreWebView2BrowsingDataKinds.AllProfile);
+        }
+        finally
+        {
+            _selectionLock.Release();
+        }
+    }
+
+    private async Task<ProviderProfileCleanupBatchResult?> ClearActiveProviderDataAsync(
+        string expectedWorkspaceId,
+        CoreWebView2BrowsingDataKinds dataKinds,
+        bool clearNavigationTargets)
+    {
+        try
+        {
+            await _selectionLock.WaitAsync(_lifetimeCancellation.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            return null;
         }
 
         try
@@ -288,36 +340,29 @@ internal sealed class WorkspaceCoordinator : IDisposable
                 || ActiveWorkspace is not { } workspace
                 || !string.Equals(workspace.WorkspaceId, expectedWorkspaceId, StringComparison.Ordinal))
             {
-                return false;
+                return null;
+            }
+
+            var affectedWorkspaces = _workspaces.Values.Where(candidate =>
+                    string.Equals(candidate.Provider.Id, workspace.Provider.Id, StringComparison.Ordinal))
+                .ToArray();
+            foreach (var affected in affectedWorkspaces)
+            {
+                affected.DisposeView();
+                if (clearNavigationTargets)
+                {
+                    affected.ClearNavigationTargets();
+                }
             }
 
             var environment = await GetEnvironmentAsync(workspace);
-            if (environment is not null && !_disposed)
+            if (environment is null || _disposed)
             {
-                var affectedWorkspaces = _workspaces.Values.Where(candidate =>
-                        string.Equals(candidate.Provider.Id, workspace.Provider.Id, StringComparison.Ordinal))
-                    .ToArray();
-                foreach (var affected in affectedWorkspaces)
-                {
-                    affected.DisposeView();
-                    affected.ClearNavigationTargets();
-                }
-
-                if (!EnsureCapacityFor(workspace))
-                {
-                    workspace.ReportCapacityBlocked();
-                    return false;
-                }
-
-                if (!await workspace.ResetWebsiteDataAsync(environment))
-                {
-                    return false;
-                }
-
-                return true;
+                return null;
             }
 
-            return false;
+            var cleaner = new ProviderProfileDataCleaner(_host, environment);
+            return await cleaner.ClearAsync([workspace.Provider], dataKinds);
         }
         finally
         {
@@ -587,7 +632,7 @@ internal sealed class WorkspaceCoordinator : IDisposable
         _ => new WorkspaceLifecyclePolicy(2, 3, TimeSpan.FromMinutes(5))
     };
 
-    private async Task<CoreWebView2Environment?> GetEnvironmentAsync(ProviderWorkspace workspace)
+    private async Task<CoreWebView2Environment?> GetEnvironmentAsync(ProviderWorkspace? workspace)
     {
         var environmentTask = _environmentTask ??= CreateEnvironmentAsync();
         try
@@ -601,7 +646,7 @@ internal sealed class WorkspaceCoordinator : IDisposable
                 _environmentTask = null;
             }
 
-            workspace.ReportEnvironmentFailure(exception);
+            workspace?.ReportEnvironmentFailure(exception);
             return null;
         }
     }

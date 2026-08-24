@@ -495,7 +495,7 @@
             Background="{ThemeResource PromptScrimBrush}"
             Visibility="Collapsed">
             <Border
-                Width="520"
+                Width="660"
                 MaxWidth="{Binding ActualWidth, ElementName=RootLayout}"
                 MaxHeight="{Binding ActualHeight, ElementName=RootLayout}"
                 Margin="24"
@@ -515,7 +515,72 @@
                             </Button>
                         </Grid>
                         <StackPanel Spacing="8">
-                            <TextBlock Text="Workspaces" FontSize="16" FontWeight="SemiBold" />
+                            <TextBlock Text="General" FontSize="16" FontWeight="SemiBold" />
+                            <ComboBox
+                                x:Name="DefaultProviderComboBox"
+                                Header="Default provider"
+                                AutomationProperties.Name="Default provider"
+                                HorizontalAlignment="Stretch"
+                                SelectionChanged="DefaultProviderComboBox_SelectionChanged" />
+                            <TextBlock Text="The default provider opens for a new workspace and from the notification-area menu. Choose Home to keep startup provider-free." TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <ToggleSwitch
+                                x:Name="GlobalShortcutEnabledToggle"
+                                Header="Global shortcut"
+                                AutomationProperties.Name="Global shortcut"
+                                OnContent="Enabled"
+                                OffContent="Disabled"
+                                Toggled="GlobalShortcutSetting_Changed" />
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <ComboBox
+                                    x:Name="ShortcutModifiersComboBox"
+                                    Header="Modifiers"
+                                    HorizontalAlignment="Stretch"
+                                    SelectionChanged="GlobalShortcutSetting_Changed">
+                                    <ComboBoxItem Content="Win + Shift" Tag="Windows, Shift" />
+                                    <ComboBoxItem Content="Win + Ctrl" Tag="Windows, Control" />
+                                    <ComboBoxItem Content="Win + Alt" Tag="Windows, Alt" />
+                                    <ComboBoxItem Content="Ctrl + Alt" Tag="Control, Alt" />
+                                    <ComboBoxItem Content="Ctrl + Shift" Tag="Control, Shift" />
+                                    <ComboBoxItem Content="Alt + Shift" Tag="Alt, Shift" />
+                                </ComboBox>
+                                <ComboBox
+                                    x:Name="ShortcutKeyComboBox"
+                                    Grid.Column="1"
+                                    Header="Key"
+                                    HorizontalAlignment="Stretch"
+                                    SelectionChanged="GlobalShortcutSetting_Changed" />
+                            </Grid>
+                            <TextBlock x:Name="ShortcutStatusText" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <ToggleSwitch
+                                x:Name="LaunchOnStartupToggle"
+                                Header="Launch on startup"
+                                AutomationProperties.Name="Launch on startup"
+                                OnContent="Start hidden after sign-in"
+                                OffContent="Do not start automatically"
+                                Toggled="LaunchOnStartupToggle_Toggled" />
+                            <TextBlock x:Name="LaunchOnStartupStatusText" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <ToggleSwitch
+                                x:Name="CloseToTrayToggle"
+                                Header="Close button behavior"
+                                AutomationProperties.Name="Close button behavior"
+                                OnContent="Hide in notification area"
+                                OffContent="Exit AI Drawer"
+                                Toggled="CloseToTrayToggle_Toggled" />
+                            <ToggleSwitch
+                                x:Name="AlwaysOnTopToggle"
+                                Header="Always on top"
+                                AutomationProperties.Name="Always on top"
+                                OnContent="Keep above other windows"
+                                OffContent="Normal window stacking"
+                                Toggled="AlwaysOnTopToggle_Toggled" />
+                            <TextBlock Text="Window size and position are saved locally after movement or resizing and are clamped to an available display on restore." TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Workspaces &amp; local website data" FontSize="16" FontWeight="SemiBold" />
                             <ToggleSwitch
                                 x:Name="RestoreExactWorkspaceToggle"
                                 Header="Restore exact workspace after restart"
@@ -529,6 +594,13 @@
                                 <ComboBoxItem Content="Fast switching" Tag="FastSwitching" />
                             </ComboBox>
                             <TextBlock Text="Balanced is the current provisional policy. Low Memory and Fast Switching remain disabled until their Windows 10/11 pressure budgets are measured." TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock x:Name="ProviderDataScopeText" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button x:Name="ClearProviderCacheButton" Style="{StaticResource AppSecondaryButtonStyle}" Content="Clear provider cache" Click="ClearProviderCacheButton_Click" />
+                                <Button x:Name="ResetProviderWebsiteDataButton" Style="{StaticResource AppSecondaryButtonStyle}" Content="Reset provider website data" Click="ResetProviderWebsiteDataButton_Click" />
+                            </StackPanel>
+                            <Button x:Name="ResetAllWebsiteDataButton" Style="{StaticResource AppSecondaryButtonStyle}" HorizontalAlignment="Left" Content="Reset all AI website data" Click="ResetAllWebsiteDataButton_Click" />
+                            <TextBlock Text="Clear cache removes temporary web resources while preserving sign-in and site storage. Website-data reset signs affected provider workspaces out locally. Reset all affects every known AI Drawer provider profile and requires confirmation." TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         </StackPanel>
                         <StackPanel Spacing="8">
                             <TextBlock Text="About &amp; Privacy" FontSize="16" FontWeight="SemiBold" />

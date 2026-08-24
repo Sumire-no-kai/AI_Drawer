@@ -25,10 +25,22 @@ public sealed record AppSettings(
     int SuccessfulOpenCount = 0,
     bool SupportReminderDismissed = false,
     DateTimeOffset? SupportReminderSnoozedUntilUtc = null,
-    int SupportReminderSnoozedUntilMajorRelease = 0)
+    int SupportReminderSnoozedUntilMajorRelease = 0,
+    string? DefaultProviderId = null,
+    GlobalShortcutSettings? GlobalShortcut = null,
+    bool LaunchOnStartup = false,
+    bool CloseToTray = true,
+    bool AlwaysOnTop = false,
+    WindowPlacementSnapshot? WindowPlacement = null)
 {
     public const int CurrentSchemaVersion = 1;
 }
+
+public sealed record WindowPlacementSnapshot(
+    int X,
+    int Y,
+    int Width,
+    int Height);
 
 public enum MemoryMode
 {

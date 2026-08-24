@@ -10,12 +10,16 @@ public static class Program
     private const string SingleInstanceKey = "AI Drawer";
     private static App? _application;
 
+    internal static bool IsStartupActivation { get; private set; }
+
     [STAThread]
     public static int Main(string[] args)
     {
         WinRT.ComWrappersSupport.InitializeComWrappers();
 
-        if (RedirectToExistingInstance())
+        var activationArguments = AppInstance.GetCurrent().GetActivatedEventArgs();
+        IsStartupActivation = activationArguments.Kind == ExtendedActivationKind.StartupTask;
+        if (RedirectToExistingInstance(activationArguments))
         {
             return 0;
         }
@@ -30,9 +34,8 @@ public static class Program
         return 0;
     }
 
-    private static bool RedirectToExistingInstance()
+    private static bool RedirectToExistingInstance(AppActivationArguments activationArguments)
     {
-        var activationArguments = AppInstance.GetCurrent().GetActivatedEventArgs();
         var primaryInstance = AppInstance.FindOrRegisterForKey(SingleInstanceKey);
         if (primaryInstance.IsCurrent)
         {
@@ -74,8 +77,13 @@ public static class Program
         }
     }
 
-    private static void OnActivated(object? sender, AppActivationArguments args) =>
-        App.ActivateExistingWindow();
+    private static void OnActivated(object? sender, AppActivationArguments args)
+    {
+        if (args.Kind != ExtendedActivationKind.StartupTask)
+        {
+            App.ActivateExistingWindow();
+        }
+    }
 
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
