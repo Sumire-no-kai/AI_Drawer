@@ -230,7 +230,7 @@ try
         Equal(PopupDisposition.OpenControlledAuthenticationWindow, chatGpt.ClassifyPopup("https://auth.openai.com/authorize"));
         Equal(PopupDisposition.OpenExternal, chatGpt.ClassifyPopup("https://example.com/path?opaque=secret#fragment"));
         Equal(PopupDisposition.BlockUnsupported, chatGpt.ClassifyPopup("javascript:alert(1)"));
-        Equal("https://example.com/path", chatGpt.CreateSafeExternalUri("https://example.com/path?opaque=secret#fragment")?.AbsoluteUri.TrimEnd('/'));
+        Equal("https://example.com/path", ProviderDefinition.CreateSafeExternalUri("https://example.com/path?opaque=secret#fragment")?.AbsoluteUri.TrimEnd('/'));
         return Task.CompletedTask;
     });
 

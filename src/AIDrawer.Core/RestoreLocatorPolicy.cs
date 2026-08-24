@@ -7,7 +7,7 @@ public sealed class RestoreLocatorPolicy(string providerHost, IReadOnlyList<stri
     private const int MaximumPathLength = 2048;
     private readonly string _providerHost = new IdnMapping().GetAscii(providerHost).ToLowerInvariant();
     private readonly string[] _allowedPathPrefixes = allowedPathPrefixes
-        .Where(prefix => prefix.StartsWith("/", StringComparison.Ordinal))
+        .Where(prefix => prefix.StartsWith('/'))
         .Distinct(StringComparer.Ordinal)
         .ToArray();
 

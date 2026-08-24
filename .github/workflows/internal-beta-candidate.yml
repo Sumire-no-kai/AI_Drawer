@@ -7,6 +7,15 @@ on:
         description: Short internal label (letters, numbers, dots, underscores, and hyphens)
         required: true
         type: string
+      architecture:
+        description: Package architecture
+        required: true
+        default: x64
+        type: choice
+        options:
+          - x64
+          - x86
+          - arm64
 
 permissions:
   contents: read
@@ -29,13 +38,14 @@ jobs:
         shell: pwsh
         env:
           CANDIDATE_LABEL: ${{ inputs.candidate_label }}
+          CANDIDATE_ARCHITECTURE: ${{ inputs.architecture }}
           CANDIDATE_OUTPUT_ROOT: ${{ runner.temp }}/ai-drawer-beta-candidates
-        run: ./tools/Build-InternalBetaCandidate.ps1 -CandidateLabel $env:CANDIDATE_LABEL -OutputRoot $env:CANDIDATE_OUTPUT_ROOT
+        run: ./tools/Build-InternalBetaCandidate.ps1 -CandidateLabel $env:CANDIDATE_LABEL -Architecture $env:CANDIDATE_ARCHITECTURE -OutputRoot $env:CANDIDATE_OUTPUT_ROOT
 
       - name: Upload internal candidate
         uses: actions/upload-artifact@v7
         with:
-          name: ai-drawer-internal-${{ inputs.candidate_label }}
+          name: ai-drawer-internal-${{ inputs.candidate_label }}-${{ inputs.architecture }}
           path: ${{ runner.temp }}/ai-drawer-beta-candidates/${{ inputs.candidate_label }}
           if-no-files-found: error
           retention-days: 14

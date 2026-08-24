@@ -46,7 +46,7 @@ internal sealed class WorkspaceCoordinator : IDisposable
 
     internal event EventHandler<NavigationPromptRequestedEventArgs>? NavigationPromptRequested;
 
-    internal IReadOnlyList<ProviderDefinition> Providers => ProviderCatalog.AvailableProviders;
+    internal static IReadOnlyList<ProviderDefinition> Providers => ProviderCatalog.AvailableProviders;
 
     internal ProviderWorkspace? ActiveWorkspace { get; private set; }
 
@@ -569,7 +569,7 @@ internal sealed class WorkspaceCoordinator : IDisposable
         }
     }
 
-    private IReadOnlyCollection<LiveWorkspaceState> CreateLiveStates(
+    private LiveWorkspaceState[] CreateLiveStates(
         IReadOnlyCollection<ProviderWorkspace> workspaces) => workspaces
         .Select(workspace => new LiveWorkspaceState(
             workspace.WorkspaceId,

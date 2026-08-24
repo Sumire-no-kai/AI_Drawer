@@ -572,7 +572,7 @@ internal sealed class ProviderWorkspace : IDisposable
         CoreWebView2 sourceCore,
         CoreWebView2Environment environment,
         CoreWebView2NewWindowRequestedEventArgs args,
-        IDisposable deferral,
+        Deferral deferral,
         ControlledPopupKind popupKind)
     {
         try
@@ -720,7 +720,7 @@ internal sealed class ProviderWorkspace : IDisposable
 
     private void RequestExternalNavigation(string? rawUri)
     {
-        var externalUri = Provider.CreateSafeExternalUri(rawUri);
+        var externalUri = ProviderDefinition.CreateSafeExternalUri(rawUri);
         if (externalUri is null)
         {
             RaiseState(

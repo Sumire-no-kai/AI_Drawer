@@ -208,7 +208,7 @@ internal sealed class ProviderPopupWindow : IDisposable
 
     private void RequestExternalNavigation(string? rawUri)
     {
-        var uri = _provider.CreateSafeExternalUri(rawUri);
+        var uri = ProviderDefinition.CreateSafeExternalUri(rawUri);
         if (uri is null)
         {
             _reportState(
