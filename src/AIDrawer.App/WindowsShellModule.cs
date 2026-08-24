@@ -15,6 +15,7 @@ internal sealed class WindowsShellModule : IDisposable
     private readonly Window _window;
     private readonly AppWindow _appWindow;
     private readonly IntPtr _windowHandle;
+    private readonly MinimumWindowSizeController _minimumWindowSizeController;
     private readonly GlobalHotKey _globalHotKey;
     private readonly DispatcherQueueTimer _placementTimer;
     private bool _suppressPlacementCapture;
@@ -25,6 +26,10 @@ internal sealed class WindowsShellModule : IDisposable
         _window = window;
         _appWindow = window.AppWindow;
         _windowHandle = WindowNative.GetWindowHandle(window);
+        _minimumWindowSizeController = new MinimumWindowSizeController(
+            _windowHandle,
+            WindowPlacementPolicy.MinimumWidth,
+            WindowPlacementPolicy.MinimumHeight);
         _globalHotKey = new GlobalHotKey(window, ToggleFromHotKey);
         _placementTimer = window.DispatcherQueue.CreateTimer();
         _placementTimer.Interval = TimeSpan.FromMilliseconds(500);
@@ -215,6 +220,7 @@ internal sealed class WindowsShellModule : IDisposable
         _placementTimer.Tick -= PlacementTimer_Tick;
         _appWindow.Changed -= AppWindow_Changed;
         _globalHotKey.Dispose();
+        _minimumWindowSizeController.Dispose();
     }
 
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]

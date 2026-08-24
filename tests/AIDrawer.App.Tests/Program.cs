@@ -2,6 +2,7 @@ using AIDrawer;
 using AIDrawer.Core;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows.Automation;
 
@@ -209,6 +210,7 @@ try
                     process.Refresh();
                     return process.MainWindowHandle != IntPtr.Zero;
                 }, TimeSpan.FromSeconds(30), "AI Drawer main window");
+                WindowSizingProbe.AssertMinimumTrackSize(process.MainWindowHandle);
 
                 var root = AutomationElement.FromHandle(process.MainWindowHandle);
                 var continueButton = FindByName(root, "Continue");
@@ -599,4 +601,94 @@ static async Task DeleteDirectoryWhenReleasedAsync(string path)
     }
 
     throw new IOException($"Could not remove test directory after {maximumAttempts} attempts: {path}");
+}
+
+internal static class WindowSizingProbe
+{
+    private const uint WmGetMinMaxInfo = 0x0024;
+    private const uint MonitorDefaultToNearest = 0x00000002;
+
+    internal static void AssertMinimumTrackSize(IntPtr windowHandle)
+    {
+        var expectedWidth = WindowPlacementPolicy.MinimumWidth;
+        var expectedHeight = WindowPlacementPolicy.MinimumHeight;
+        var monitor = MonitorFromWindow(windowHandle, MonitorDefaultToNearest);
+        var monitorInfo = new MonitorInfo { Size = (uint)Marshal.SizeOf<MonitorInfo>() };
+        if (monitor != IntPtr.Zero && GetMonitorInfo(monitor, ref monitorInfo))
+        {
+            expectedWidth = Math.Min(expectedWidth, monitorInfo.WorkArea.Width);
+            expectedHeight = Math.Min(expectedHeight, monitorInfo.WorkArea.Height);
+        }
+
+        var pointer = Marshal.AllocHGlobal(Marshal.SizeOf<MinMaxInfo>());
+        try
+        {
+            Marshal.StructureToPtr(new MinMaxInfo(), pointer, false);
+            _ = SendMessage(windowHandle, WmGetMinMaxInfo, IntPtr.Zero, pointer);
+            var limits = Marshal.PtrToStructure<MinMaxInfo>(pointer);
+            if (limits.MinimumTrackSize.X < expectedWidth
+                || limits.MinimumTrackSize.Y < expectedHeight)
+            {
+                throw new InvalidOperationException(
+                    $"expected minimum window size {expectedWidth}x{expectedHeight}, "
+                    + $"got {limits.MinimumTrackSize.X}x{limits.MinimumTrackSize.Y}");
+            }
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(pointer);
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        internal int X;
+        internal int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect
+    {
+        internal int Left;
+        internal int Top;
+        internal int Right;
+        internal int Bottom;
+
+        internal readonly int Width => Right - Left;
+
+        internal readonly int Height => Bottom - Top;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MinMaxInfo
+    {
+        internal NativePoint Reserved;
+        internal NativePoint MaximumSize;
+        internal NativePoint MaximumPosition;
+        internal NativePoint MinimumTrackSize;
+        internal NativePoint MaximumTrackSize;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MonitorInfo
+    {
+        internal uint Size;
+        internal NativeRect MonitorArea;
+        internal NativeRect WorkArea;
+        internal uint Flags;
+    }
+
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr SendMessage(IntPtr windowHandle, uint message, IntPtr wParam, IntPtr lParam);
+
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr windowHandle, uint flags);
+
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo monitorInfo);
 }
