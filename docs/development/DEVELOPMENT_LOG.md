@@ -2,6 +2,24 @@
 
 This is the durable development record for implementation decisions, verified behavior, limitations, and open work. It is not a release changelog. Planned behavior must not be presented as shipped or provider-compatible behavior.
 
+## 2026-08-24 — M4 local quality, release-preparation, and package-contract hardening
+
+### Implemented behavior
+
+- Moved embedded-WebView hardening defaults into one shared policy used by the production main/popup views and the Compatibility Lab. DevTools, host objects, web messages, password autosave, and general autofill remain disabled.
+- Extracted pure policies for safe window-placement clamping, collision-free sanitized download paths, and bounded WebView process recovery. The workspace keeps the existing one-reload renderer bound, asks for explicit recovery after a repeated unresponsive event, recreates the browser environment after browser exit, and does not reload in an out-of-memory loop.
+- Added a provider-catalog contract test that exposed three real strict-origin mismatches. DeepSeek, Doubao, and Qwen now list their actual reviewed homepage host rather than a registrable parent domain, so their initial navigation is embedded instead of treated as external.
+- Hardened the unsigned-candidate tool to inspect an actual MSIX for its disabled `AIDrawerStartupTask`, exact packaged executable, and the reviewed `runFullTrust` capability set. Candidate metadata now records those checks.
+- Added ADR 0002 for the still-unapproved packaged/unpackaged data-root and uninstall decision, threat-model/security-review records, Store-submission preparation, versioning/rollback guidance, and a release-notes template. No final identity, signing, website, support address, or private reporting channel was invented.
+
+### Verification and limits
+
+- Core Release harness: 42 checks passed. Application x64 Debug/Release and Compatibility Lab x64 Debug/Release builds passed with warnings as errors. The application harness passed 11 non-GUI checks and 14 checks with its three generated-profile UI Automation flows enabled.
+- Production application Debug and Release builds passed for x64, x86, and ARM64 with warnings as errors. Cross-architecture compilation is not device-runtime evidence.
+- The first candidate-script syntax check and actual MSIX run found and fixed a malformed PowerShell condition and an XPath that omitted the manifest's `Extensions` element. The corrected dirty-source x64 candidate passed its package contract and produced SHA-256 `b3ac4e219778c93348726b4dba3e57f81a92eecc655f7e09fde09577648c7972`. It was neither installed nor published. The local package tooling still lacks `mspdbcmf.exe`, so no symbol package was generated.
+- Full GUI automation initially exposed WebView2 Crashpad files remaining briefly locked after a child-process shutdown. Test cleanup now retries generated temporary-root deletion; the rerun passed all 14 checks. This validates test isolation, not provider profile behavior.
+- Provider account flows, real downloads/reset, package installation and startup registration, device execution, full accessibility coverage, Windows-version matrix, independent security review, and all M2/M3 runtime Gates remain open.
+
 ## 2026-08-24 — M4 native MVP settings, data controls, and download safety
 
 ### Implemented behavior

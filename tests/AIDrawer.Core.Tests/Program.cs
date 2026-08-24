@@ -249,6 +249,99 @@ Check("download policy supplies a fallback name", () =>
     Equal("download", DownloadPolicy.SanitizeFileName(string.Empty));
 });
 
+Check("download policy chooses a non-overwriting sibling path", () =>
+{
+    var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        Path.Combine("C:\\Downloads", "report.pdf"),
+        Path.Combine("C:\\Downloads", "report (2).pdf")
+    };
+    Equal(
+        Path.Combine("C:\\Downloads", "report (3).pdf"),
+        DownloadPolicy.CreateNonExistingPath("C:\\Downloads", "report.pdf", existing.Contains));
+});
+
+Check("download policy sanitizes a proposed path before collision handling", () =>
+{
+    Equal(
+        Path.Combine("C:\\Downloads", "_CON.txt"),
+        DownloadPolicy.CreateNonExistingPath("C:\\Downloads", "CON.txt", _ => false));
+});
+
+Check("window placement policy clamps an off-screen oversized placement", () =>
+{
+    var result = WindowPlacementPolicy.ClampToWorkArea(
+        new WindowPlacementSnapshot(5000, -1000, 2000, 1200),
+        new WindowWorkArea(0, 0, 1280, 720));
+    Equal(new WindowPlacementSnapshot(0, 0, 1280, 720), result);
+});
+
+Check("window placement policy preserves a valid placement in a negative-coordinate display", () =>
+{
+    var result = WindowPlacementPolicy.ClampToWorkArea(
+        new WindowPlacementSnapshot(-1800, 100, 1100, 720),
+        new WindowWorkArea(-1920, 0, 1920, 1080));
+    Equal(new WindowPlacementSnapshot(-1800, 100, 1100, 720), result);
+});
+
+Check("window placement policy rejects invalid input and work areas", () =>
+{
+    Null(WindowPlacementPolicy.ClampToWorkArea(
+        new WindowPlacementSnapshot(0, 0, 100, 100),
+        new WindowWorkArea(0, 0, 1280, 720)));
+    Null(WindowPlacementPolicy.ClampToWorkArea(
+        new WindowPlacementSnapshot(0, 0, 720, 540),
+        new WindowWorkArea(0, 0, 0, 720)));
+});
+
+Check("WebView security defaults disable all native-to-page bridges and browser conveniences", () =>
+{
+    var settings = WebViewSecurityPolicy.EmbeddedProviderDefaults;
+    False(settings.AreDevToolsEnabled);
+    False(settings.AreHostObjectsAllowed);
+    False(settings.IsWebMessageEnabled);
+    False(settings.IsPasswordAutosaveEnabled);
+    False(settings.IsGeneralAutofillEnabled);
+});
+
+Check("WebView recovery policy performs one bounded renderer reload", () =>
+{
+    Equal(
+        new WebViewRecoveryDecision(WebViewRecoveryAction.ReloadOnce, false),
+        WebViewRecoveryPolicy.Decide(WebViewFailureKind.RendererExited, 0, 0));
+    Equal(
+        new WebViewRecoveryDecision(WebViewRecoveryAction.RestartWorkspace, false),
+        WebViewRecoveryPolicy.Decide(WebViewFailureKind.RendererExited, 0, 1));
+});
+
+Check("WebView recovery policy waits once and then asks for explicit renderer recovery", () =>
+{
+    Equal(
+        new WebViewRecoveryDecision(WebViewRecoveryAction.WaitForRenderer, false),
+        WebViewRecoveryPolicy.Decide(WebViewFailureKind.RendererUnresponsive, 0, 0));
+    Equal(
+        new WebViewRecoveryDecision(WebViewRecoveryAction.RequireManualRecovery, true),
+        WebViewRecoveryPolicy.Decide(WebViewFailureKind.RendererUnresponsive, 1, 0));
+});
+
+Check("WebView recovery policy preserves browser and memory boundaries", () =>
+{
+    Equal(
+        new WebViewRecoveryDecision(WebViewRecoveryAction.RecreateBrowserEnvironment, false),
+        WebViewRecoveryPolicy.Decide(WebViewFailureKind.BrowserExited, 0, 0));
+    Equal(
+        new WebViewRecoveryDecision(WebViewRecoveryAction.ReleaseInactiveWorkspaces, true),
+        WebViewRecoveryPolicy.Decide(WebViewFailureKind.OutOfMemory, 0, 0));
+});
+
+Check("WebView recovery policy rejects negative counters", () =>
+{
+    Throws<ArgumentOutOfRangeException>(() =>
+        WebViewRecoveryPolicy.Decide(WebViewFailureKind.Other, -1, 0));
+    Throws<ArgumentOutOfRangeException>(() =>
+        WebViewRecoveryPolicy.Decide(WebViewFailureKind.Other, 0, -1));
+});
+
 Check("app settings normalize new optional fields", () =>
 {
     var normalized = AppSettingsPolicy.Normalize(new AppSettings(
@@ -281,7 +374,7 @@ if (failures.Count > 0)
     return 1;
 }
 
-Console.WriteLine("32 core policy checks passed.");
+Console.WriteLine("42 core policy checks passed.");
 return 0;
 
 void Check(string name, Action test)

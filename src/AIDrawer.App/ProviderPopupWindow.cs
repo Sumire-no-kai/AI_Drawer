@@ -85,11 +85,7 @@ internal sealed class ProviderPopupWindow : IDisposable
 
     private void Configure(CoreWebView2 core)
     {
-        core.Settings.AreDevToolsEnabled = false;
-        core.Settings.AreHostObjectsAllowed = false;
-        core.Settings.IsWebMessageEnabled = false;
-        core.Settings.IsPasswordAutosaveEnabled = false;
-        core.Settings.IsGeneralAutofillEnabled = false;
+        WebViewSecurityConfigurator.Apply(core.Settings);
 
         core.NavigationStarting += (sender, args) =>
         {

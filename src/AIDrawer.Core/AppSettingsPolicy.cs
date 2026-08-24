@@ -2,10 +2,6 @@ namespace AIDrawer.Core;
 
 public static class AppSettingsPolicy
 {
-    private const int MaximumWindowDimension = short.MaxValue;
-    private const int MinimumWindowWidth = 720;
-    private const int MinimumWindowHeight = 540;
-
     public static AppSettings Normalize(AppSettings settings)
     {
         var providerId = settings.DefaultProviderId?.Trim();
@@ -16,11 +12,7 @@ public static class AppSettingsPolicy
         }
 
         var placement = settings.WindowPlacement;
-        if (placement is not null
-            && (placement.Width < MinimumWindowWidth
-                || placement.Height < MinimumWindowHeight
-                || placement.Width > MaximumWindowDimension
-                || placement.Height > MaximumWindowDimension))
+        if (placement is not null && !WindowPlacementPolicy.IsValid(placement))
         {
             placement = null;
         }

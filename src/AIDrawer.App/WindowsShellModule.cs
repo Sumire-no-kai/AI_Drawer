@@ -12,8 +12,6 @@ namespace AIDrawer;
 internal sealed class WindowsShellModule : IDisposable
 {
     private const string StartupTaskId = "AIDrawerStartupTask";
-    private const int MinimumWindowWidth = 720;
-    private const int MinimumWindowHeight = 540;
     private readonly Window _window;
     private readonly AppWindow _appWindow;
     private readonly IntPtr _windowHandle;
@@ -102,7 +100,7 @@ internal sealed class WindowsShellModule : IDisposable
 
         var position = _appWindow.Position;
         var size = _appWindow.Size;
-        return size.Width >= MinimumWindowWidth && size.Height >= MinimumWindowHeight
+        return size.Width >= WindowPlacementPolicy.MinimumWidth && size.Height >= WindowPlacementPolicy.MinimumHeight
             ? new WindowPlacementSnapshot(position.X, position.Y, size.Width, size.Height)
             : null;
     }
@@ -161,10 +159,7 @@ internal sealed class WindowsShellModule : IDisposable
 
     private void RestoreWindowPlacement(WindowPlacementSnapshot placement)
     {
-        if (placement.Width < MinimumWindowWidth
-            || placement.Height < MinimumWindowHeight
-            || placement.Width > short.MaxValue
-            || placement.Height > short.MaxValue)
+        if (!WindowPlacementPolicy.IsValid(placement))
         {
             return;
         }
@@ -172,17 +167,18 @@ internal sealed class WindowsShellModule : IDisposable
         var desired = new RectInt32(placement.X, placement.Y, placement.Width, placement.Height);
         var displayArea = DisplayArea.GetFromRect(desired, DisplayAreaFallback.Primary);
         var workArea = displayArea.WorkArea;
-        var minimumWidth = Math.Min(MinimumWindowWidth, workArea.Width);
-        var minimumHeight = Math.Min(MinimumWindowHeight, workArea.Height);
-        var width = Math.Clamp(placement.Width, minimumWidth, workArea.Width);
-        var height = Math.Clamp(placement.Height, minimumHeight, workArea.Height);
-        var x = Math.Clamp(placement.X, workArea.X, workArea.X + workArea.Width - width);
-        var y = Math.Clamp(placement.Y, workArea.Y, workArea.Y + workArea.Height - height);
+        var clamped = WindowPlacementPolicy.ClampToWorkArea(
+            placement,
+            new WindowWorkArea(workArea.X, workArea.Y, workArea.Width, workArea.Height));
+        if (clamped is null)
+        {
+            return;
+        }
 
         _suppressPlacementCapture = true;
         try
         {
-            _appWindow.MoveAndResize(new RectInt32(x, y, width, height));
+            _appWindow.MoveAndResize(new RectInt32(clamped.X, clamped.Y, clamped.Width, clamped.Height));
         }
         finally
         {

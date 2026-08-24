@@ -85,7 +85,7 @@ try
 
     await CheckAsync("a reviewed locator survives a DPAPI save and load round trip", async () =>
     {
-        Directory.Delete(appDataRoot, recursive: true);
+        await DeleteDirectoryWhenReleasedAsync(appDataRoot);
         var provider = ProviderCatalog.AvailableProviders.Single(candidate => candidate.Id == "chatgpt");
         var locator = new Uri("https://chatgpt.com/c/opaque-validation-id");
         var workspace = new WorkspaceTab(
@@ -121,7 +121,7 @@ try
 
     await CheckAsync("session persistence keeps the configured 100-workspace ceiling", async () =>
     {
-        Directory.Delete(appDataRoot, recursive: true);
+        await DeleteDirectoryWhenReleasedAsync(appDataRoot);
         var workspaces = Enumerable.Range(1, WorkspaceSession.MaximumWorkspaceCount + 1)
             .Select(number => new WorkspaceTab(number))
             .ToArray();
@@ -160,11 +160,24 @@ try
         Equal(expected.WindowPlacement, actual.WindowPlacement);
     });
 
+    await CheckAsync("provider catalog keeps a safe and data-driven contract", () =>
+    {
+        var providers = ProviderCatalog.AvailableProviders;
+        Equal(8, providers.Count);
+        Equal(providers.Count, providers.Select(provider => provider.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        True(providers.All(provider => provider.HomeUri.Scheme == Uri.UriSchemeHttps));
+        True(providers.All(provider => provider.AppDomains.Contains(provider.HomeUri.IdnHost)));
+        True(providers.All(provider => provider.AppDomains.Count > 0));
+        True(providers.All(provider => provider.CompatibilityStatus is not "Verified"));
+        True(providers.All(provider => provider.ProfileName.StartsWith("provider-", StringComparison.Ordinal)));
+        return Task.CompletedTask;
+    });
+
     if (runUiChecks)
     {
         await CheckAsync("a saved restricted locator restores its native workspace and isolated profile in a new application process", async () =>
         {
-            Directory.Delete(appDataRoot, recursive: true);
+            await DeleteDirectoryWhenReleasedAsync(appDataRoot);
             var provider = ProviderCatalog.AvailableProviders.Single(candidate => candidate.Id == "chatgpt");
             var workspace = new WorkspaceTab(
                 "workspace-restore",
@@ -240,7 +253,7 @@ try
 
         await CheckAsync("MVP shell controls apply and persist through the settings UI", async () =>
         {
-            Directory.Delete(appDataRoot, recursive: true);
+            await DeleteDirectoryWhenReleasedAsync(appDataRoot);
             await WorkspaceSessionStore.SaveSettingsAsync(new AppSettings(
                 OnboardingVersion: 2,
                 GlobalShortcut: new GlobalShortcutSettings(Enabled: false),
@@ -345,7 +358,7 @@ try
         await CheckAsync("the recovery UI backs up a corrupt session before continuing", async () =>
         {
             const string corruptSession = "{ session is broken";
-            Directory.Delete(appDataRoot, recursive: true);
+            await DeleteDirectoryWhenReleasedAsync(appDataRoot);
             await WriteSessionAsync(corruptSession);
             var appPath = GetAppPath();
             True(File.Exists(appPath));
@@ -404,7 +417,7 @@ finally
 {
     if (Directory.Exists(testRoot))
     {
-        Directory.Delete(testRoot, recursive: true);
+        await DeleteDirectoryWhenReleasedAsync(testRoot);
     }
 }
 
@@ -559,4 +572,31 @@ static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout, string 
 
         await Task.Delay(100);
     }
+}
+
+static async Task DeleteDirectoryWhenReleasedAsync(string path)
+{
+    const int maximumAttempts = 50;
+    for (var attempt = 1; attempt <= maximumAttempts; attempt++)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                Directory.Delete(path, recursive: true);
+            }
+
+            return;
+        }
+        catch (IOException) when (attempt < maximumAttempts)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(200));
+        }
+        catch (UnauthorizedAccessException) when (attempt < maximumAttempts)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(200));
+        }
+    }
+
+    throw new IOException($"Could not remove test directory after {maximumAttempts} attempts: {path}");
 }

@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using AIDrawer.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Web.WebView2.Core;
@@ -133,11 +134,12 @@ public sealed partial class MainPage : Page
 
     private void ConfigureWebView(CoreWebView2 core, ProviderDefinition provider)
     {
-        core.Settings.AreDevToolsEnabled = false;
-        core.Settings.AreHostObjectsAllowed = false;
-        core.Settings.IsWebMessageEnabled = false;
-        core.Settings.IsPasswordAutosaveEnabled = false;
-        core.Settings.IsGeneralAutofillEnabled = false;
+        var settings = WebViewSecurityPolicy.EmbeddedProviderDefaults;
+        core.Settings.AreDevToolsEnabled = settings.AreDevToolsEnabled;
+        core.Settings.AreHostObjectsAllowed = settings.AreHostObjectsAllowed;
+        core.Settings.IsWebMessageEnabled = settings.IsWebMessageEnabled;
+        core.Settings.IsPasswordAutosaveEnabled = settings.IsPasswordAutosaveEnabled;
+        core.Settings.IsGeneralAutofillEnabled = settings.IsGeneralAutofillEnabled;
 
         core.NavigationStarting += (_, args) =>
         {
