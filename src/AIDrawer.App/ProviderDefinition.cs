@@ -139,9 +139,8 @@ internal sealed record ProviderDefinition(
                 uri.AbsolutePath.Contains(fragment, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static bool IsAllowedHost(string host, IReadOnlySet<string> domains) => domains.Any(domain =>
-        string.Equals(host, domain, StringComparison.OrdinalIgnoreCase)
-        || host.EndsWith($".{domain}", StringComparison.OrdinalIgnoreCase));
+    private static bool IsAllowedHost(string host, IReadOnlySet<string> domains) =>
+        domains.Contains(host);
 }
 
 internal enum NavigationDisposition

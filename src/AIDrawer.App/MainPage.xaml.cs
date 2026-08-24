@@ -16,8 +16,12 @@ namespace AIDrawer;
 public sealed partial class MainPage : Page
 {
     private static readonly Uri SupportUri = new("https://buymeacoffee.com/edward_lee");
+    private const int CurrentOnboardingVersion = 2;
     private readonly Dictionary<string, WorkspaceTabView> _workspaceTabViews = new(StringComparer.Ordinal);
     private readonly HashSet<string> _closingWorkspaceIds = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _externalPromptUris = new(StringComparer.Ordinal);
+    private readonly Queue<NavigationPromptRequestedEventArgs> _navigationPrompts = new();
+    private readonly HashSet<string> _purchasePromptWorkspaceIds = new(StringComparer.Ordinal);
     private readonly List<WorkspaceTab> _workspaces = [];
     private readonly UISettings _uiSettings = new();
     private readonly WorkspaceSessionStore _sessionStore = new();
@@ -30,6 +34,7 @@ public sealed partial class MainPage : Page
     private long _selectionVersion;
     private string? _providerResetInProgress;
     private bool _updatingSettingsUi;
+    private bool _processingNavigationPrompts;
 
     public MainPage()
     {
@@ -60,6 +65,7 @@ public sealed partial class MainPage : Page
         coordinator.RestoreLocatorChanged -= Workspace_RestoreLocatorChanged;
         coordinator.LifecycleChanged -= Workspace_LifecycleChanged;
         coordinator.SuccessfulOpen -= Workspace_SuccessfulOpen;
+        coordinator.NavigationPromptRequested -= Workspace_NavigationPromptRequested;
         coordinator.Dispose();
         _workspaceCoordinator = null;
     }
@@ -71,6 +77,9 @@ public sealed partial class MainPage : Page
         _selectionVersion++;
         CompletePrompt(isPrimary: false);
         CompleteSessionRecovery(SessionRecoveryDecision.Exit);
+        _navigationPrompts.Clear();
+        _externalPromptUris.Clear();
+        _purchasePromptWorkspaceIds.Clear();
 
         if (shouldPersist && _settings.RestoreExactWorkspace && _workspaceCoordinator is { } coordinator)
         {
@@ -134,6 +143,7 @@ public sealed partial class MainPage : Page
         _workspaceCoordinator.RestoreLocatorChanged += Workspace_RestoreLocatorChanged;
         _workspaceCoordinator.LifecycleChanged += Workspace_LifecycleChanged;
         _workspaceCoordinator.SuccessfulOpen += Workspace_SuccessfulOpen;
+        _workspaceCoordinator.NavigationPromptRequested += Workspace_NavigationPromptRequested;
         PopulateProviderChooser();
         if (!await RestoreSessionWithRecoveryAsync()
             || _pageState != PageLifecycleState.Loading)
@@ -143,15 +153,17 @@ public sealed partial class MainPage : Page
 
         ConfigureSettingsUi();
 
-        if (_settings.OnboardingVersion < 1)
+        if (_settings.OnboardingVersion < CurrentOnboardingVersion)
         {
-            await ShowWelcomeAsync();
+            await ShowWelcomeAsync(_settings.OnboardingVersion == 0
+                ? WelcomeDisclosureMode.Full
+                : WelcomeDisclosureMode.UpdatedPrivacyBoundary);
             if (_pageState != PageLifecycleState.Loading)
             {
                 return;
             }
 
-            _settings = _settings with { OnboardingVersion = 1 };
+            _settings = _settings with { OnboardingVersion = CurrentOnboardingVersion };
             await PersistSettingsAsync();
             if (_pageState != PageLifecycleState.Loading)
             {
@@ -172,6 +184,9 @@ public sealed partial class MainPage : Page
             _selectionVersion++;
             CompletePrompt(isPrimary: false);
             CompleteSessionRecovery(SessionRecoveryDecision.Exit);
+            _navigationPrompts.Clear();
+            _externalPromptUris.Clear();
+            _purchasePromptWorkspaceIds.Clear();
             DisposeWorkspace();
             _workspaces.Clear();
             _closingWorkspaceIds.Clear();
@@ -247,6 +262,133 @@ public sealed partial class MainPage : Page
             && string.Equals(_activeWorkspace?.Id, args.WorkspaceId, StringComparison.Ordinal))
         {
             WorkspaceActionsButton.IsEnabled = true;
+        }
+    }
+
+    private async void Workspace_NavigationPromptRequested(object? sender, NavigationPromptRequestedEventArgs args)
+    {
+        if (_pageState != PageLifecycleState.Ready
+            || !string.Equals(_activeWorkspace?.Id, args.WorkspaceId, StringComparison.Ordinal)
+            || args.Kind == NavigationPromptKind.ExternalLink && args.ExternalUri is null)
+        {
+            return;
+        }
+
+        if (args.Kind == NavigationPromptKind.PurchaseBlocked
+            && !_purchasePromptWorkspaceIds.Add(args.WorkspaceId))
+        {
+            return;
+        }
+
+        if (args.Kind == NavigationPromptKind.ExternalLink
+            && !_externalPromptUris.Add(args.ExternalUri!.AbsoluteUri))
+        {
+            return;
+        }
+
+        _navigationPrompts.Enqueue(args);
+        await ProcessNavigationPromptsAsync();
+    }
+
+    private async Task ProcessNavigationPromptsAsync()
+    {
+        if (_processingNavigationPrompts)
+        {
+            return;
+        }
+
+        _processingNavigationPrompts = true;
+        try
+        {
+            while (_pageState == PageLifecycleState.Ready && _navigationPrompts.TryDequeue(out var request))
+            {
+                try
+                {
+                    while (_pageState == PageLifecycleState.Ready && _promptCompletion is not null)
+                    {
+                        await Task.Delay(50);
+                    }
+
+                    if (_pageState != PageLifecycleState.Ready
+                        || !string.Equals(_activeWorkspace?.Id, request.WorkspaceId, StringComparison.Ordinal))
+                    {
+                        continue;
+                    }
+
+                    if (request.Kind == NavigationPromptKind.PurchaseBlocked)
+                    {
+                        await ShowPromptAsync(
+                            "Purchase stays outside AI Drawer",
+                            "AI Drawer does not provide or process subscriptions, billing, cancellations, refunds, or payment information. To reduce embedded-payment risk, use Edge, Chrome, or another browser you trust to visit the provider's official website yourself.",
+                            "Got it",
+                            secondaryButtonText: null);
+                        continue;
+                    }
+
+                    if (request.ExternalUri is not { } externalUri)
+                    {
+                        continue;
+                    }
+
+                    var decision = await ShowPromptAsync(
+                        "Open external link in your browser?",
+                        "This destination is outside the reviewed provider and authentication origins. AI Drawer removed query parameters and fragments before this optional browser handoff.",
+                        "Open in browser",
+                        "Stay in AI Drawer");
+                    if (decision.IsPrimary
+                        && _pageState == PageLifecycleState.Ready
+                        && string.Equals(_activeWorkspace?.Id, request.WorkspaceId, StringComparison.Ordinal))
+                    {
+                        await LaunchExternalUriAsync(externalUri);
+                    }
+                }
+                finally
+                {
+                    if (request.Kind == NavigationPromptKind.PurchaseBlocked)
+                    {
+                        _purchasePromptWorkspaceIds.Remove(request.WorkspaceId);
+                    }
+                    else if (request.ExternalUri is not null)
+                    {
+                        _externalPromptUris.Remove(request.ExternalUri.AbsoluteUri);
+                    }
+                }
+            }
+        }
+        catch (Exception exception)
+        {
+            if (_pageState == PageLifecycleState.Ready)
+            {
+                ShowStatus(
+                    "Navigation confirmation could not be shown",
+                    $"The blocked navigation was kept outside AI Drawer ({exception.GetType().Name}).",
+                    InfoBarSeverity.Warning);
+            }
+        }
+        finally
+        {
+            _processingNavigationPrompts = false;
+        }
+    }
+
+    private async Task LaunchExternalUriAsync(Uri uri)
+    {
+        try
+        {
+            if (!await Launcher.LaunchUriAsync(uri))
+            {
+                ShowStatus(
+                    "Link could not be opened",
+                    "Windows did not find an application that could open this HTTPS link.",
+                    InfoBarSeverity.Warning);
+            }
+        }
+        catch (Exception exception)
+        {
+            ShowStatus(
+                "Link could not be opened",
+                $"Windows could not open this HTTPS link ({exception.GetType().Name}).",
+                InfoBarSeverity.Warning);
         }
     }
 
@@ -1155,13 +1297,42 @@ public sealed partial class MainPage : Page
         }
     }
 
-    private async Task ShowWelcomeAsync()
+    private async Task ShowWelcomeAsync(WelcomeDisclosureMode mode)
     {
-        await ShowPromptAsync(
-            "Welcome to AI Drawer",
-            "AI Drawer opens official AI websites in private local provider profiles. Multiple native workspaces can share one provider sign-in. To limit memory, an inactive WebView may be released while its tab remains; exact restore is limited to reviewed provider URL patterns. AI Drawer never reads or stores prompts, responses, page content, credentials, cookies, tokens, or payment data.",
-            "Continue",
-            "Skip");
+        IReadOnlyList<WelcomeDisclosure> disclosures = mode switch
+        {
+            WelcomeDisclosureMode.UpdatedPrivacyBoundary =>
+            [
+                new WelcomeDisclosure(
+                    "Privacy and navigation update",
+                    "AI Drawer now keeps unreviewed sites out of embedded workspaces. External links require your confirmation before opening in your browser. Known subscription, billing, and payment routes are blocked in AI Drawer; use a browser you trust to visit a provider website yourself. AI Drawer remains independent and unofficial, and never reads prompts, responses, page content, credentials, cookies, tokens, or payment data.")
+            ],
+            _ =>
+            [
+                new WelcomeDisclosure(
+                    "Welcome to AI Drawer",
+                    "AI Drawer is an independent, unofficial desktop shell for official AI websites. Use Win + Shift + A to show or hide it, or use the tray icon. Provider compatibility labels describe current evidence; your accounts, conversations, and subscriptions remain with each provider."),
+                new WelcomeDisclosure(
+                    "Your local session and privacy",
+                    "Each provider uses its own local browser profile. Multiple AI Drawer workspaces can share that provider sign-in. AI Drawer never reads or stores prompts, responses, page content, credentials, cookies, tokens, or payment data. Clearing cache is not the same as resetting provider website data; reset signs out every workspace that shares that provider profile."),
+                new WelcomeDisclosure(
+                    "External links and purchases",
+                    "AI Drawer embeds only reviewed provider and authentication origins. External links stay outside the app and require your confirmation before opening in your browser. Known subscription, billing, and payment routes are blocked here; use Edge, Chrome, or another browser you trust to visit a provider website yourself.")
+            ]
+        };
+
+        foreach (var disclosure in disclosures)
+        {
+            var decision = await ShowPromptAsync(
+                disclosure.Title,
+                disclosure.Message,
+                "Continue",
+                "Skip tour");
+            if (!decision.IsPrimary)
+            {
+                return;
+            }
+        }
     }
 
     private void ConfigureSettingsUi()
@@ -1189,7 +1360,7 @@ public sealed partial class MainPage : Page
     private async void ShowWelcomeButton_Click(object sender, RoutedEventArgs e)
     {
         SettingsOverlay.Visibility = Visibility.Collapsed;
-        await ShowWelcomeAsync();
+        await ShowWelcomeAsync(WelcomeDisclosureMode.Reference);
     }
 
     private async void RestoreExactWorkspaceToggle_Toggled(object sender, RoutedEventArgs e)
@@ -1458,7 +1629,7 @@ public sealed partial class MainPage : Page
         string title,
         string message,
         string primaryButtonText,
-        string secondaryButtonText,
+        string? secondaryButtonText,
         bool showRememberChoice = false)
     {
         if (_promptCompletion is not null)
@@ -1470,13 +1641,15 @@ public sealed partial class MainPage : Page
         PromptMessage.Text = message;
         PromptPrimaryButton.Content = primaryButtonText;
         PromptSecondaryButton.Content = secondaryButtonText;
+        PromptSecondaryButton.Visibility = secondaryButtonText is null ? Visibility.Collapsed : Visibility.Visible;
         PromptRememberCheckBox.IsChecked = false;
         PromptRememberCheckBox.Visibility = showRememberChoice ? Visibility.Visible : Visibility.Collapsed;
         _promptCompletion = new TaskCompletionSource<PromptDecision>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         PromptOverlay.Visibility = Visibility.Visible;
         AnimateIn(PromptCard);
-        _ = DispatcherQueue.TryEnqueue(() => PromptSecondaryButton.Focus(FocusState.Programmatic));
+        _ = DispatcherQueue.TryEnqueue(() =>
+            (secondaryButtonText is null ? PromptPrimaryButton : PromptSecondaryButton).Focus(FocusState.Programmatic));
 
         return _promptCompletion.Task;
     }
@@ -1596,5 +1769,15 @@ public sealed partial class MainPage : Page
         BackupAndContinue,
         Exit
     }
+
     private sealed record PromptDecision(bool IsPrimary, bool RememberDecision);
+
+    private enum WelcomeDisclosureMode
+    {
+        Full,
+        UpdatedPrivacyBoundary,
+        Reference
+    }
+
+    private sealed record WelcomeDisclosure(string Title, string Message);
 }

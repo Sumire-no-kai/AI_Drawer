@@ -106,11 +106,12 @@
                 x:Name="EventLogBox"
                 AcceptsReturn="True"
                 FontFamily="Consolas"
-                Header="Sanitized in-memory events"
+                Header="Debug-only sanitized in-memory events"
                 IsReadOnly="True"
                 TextWrapping="Wrap" />
             <StackPanel Grid.Column="1" Spacing="8">
-                <TextBlock FontWeight="SemiBold" Text="Live diagnostics" />
+                <TextBlock FontWeight="SemiBold" Text="Debug-only diagnostics" />
+                <TextBlock FontSize="12" Text="No URLs, page content, credentials, cookies, tokens, or payment information are recorded. Release builds keep this view empty." TextWrapping="Wrap" />
                 <TextBlock x:Name="ProviderStatusText" Text="Provider: not selected" TextWrapping="Wrap" />
                 <TextBlock x:Name="PurchasePolicyText" Text="Purchase policy: not selected" TextWrapping="Wrap" />
                 <TextBlock x:Name="ProfilePathText" Text="Profile: not started" TextWrapping="Wrap" />

@@ -197,8 +197,10 @@ try
         var chatGpt = ProviderCatalog.AvailableProviders.Single(candidate => candidate.Id == "chatgpt");
         Equal(NavigationDisposition.EmbedProviderApplication, chatGpt.ClassifyTopLevelNavigation("https://chatgpt.com/c/opaque-id"));
         Equal(NavigationDisposition.EmbedAuthentication, chatGpt.ClassifyTopLevelNavigation("https://auth.openai.com/authorize"));
+        Equal(NavigationDisposition.OpenExternal, chatGpt.ClassifyTopLevelNavigation("https://preview.chatgpt.com/c/opaque-id"));
         True(chatGpt.IsAuthenticationUri("https://auth.openai.com/authorize"));
         False(chatGpt.IsAuthenticationUri("https://chatgpt.com/c/opaque-id"));
+        False(chatGpt.IsProviderAppUri("https://preview.chatgpt.com/c/opaque-id"));
         Equal(NavigationDisposition.OpenExternal, chatGpt.ClassifyTopLevelNavigation("https://chatgpt.com.evil.example/path?opaque=secret"));
         Equal(NavigationDisposition.BlockUnsupported, chatGpt.ClassifyTopLevelNavigation("https://user@chatgpt.com/"));
         Equal(NavigationDisposition.BlockUnsupported, chatGpt.ClassifyTopLevelNavigation("https://chatgpt.com:444/"));
@@ -214,6 +216,7 @@ try
     await CheckAsync("known purchase routes are blocked before navigation", () =>
     {
         var gemini = ProviderCatalog.AvailableProviders.Single(candidate => candidate.Id == "gemini");
+        Equal(NavigationDisposition.BlockPurchase, gemini.ClassifyTopLevelNavigation("https://gemini.google.com/upgrade?opaque=secret"));
         Equal(PopupDisposition.BlockPurchase, gemini.ClassifyPopup("https://gemini.google.com/upgrade?opaque=secret"));
         True(gemini.IsKnownPurchaseUri("https://pay.google.com/checkout"));
         False(gemini.IsKnownPurchaseUri("http://pay.google.com/checkout"));

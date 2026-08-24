@@ -10,7 +10,7 @@ The result is a compatibility finding, not a provider-support claim. Gemini rema
 
 - The tester enters all account details manually.
 - The harness must not inspect or store DOM content, credentials, cookies, tokens, prompts, responses, request bodies, payment data, or full URLs.
-- Diagnostic events stay in memory and contain only event type, time, safe origin, result category, permission kind, or process-failure category.
+- Debug-only diagnostic events stay in memory and contain only bounded event codes, time, result category, permission kind, or process-failure category. Release builds show no diagnostic events.
 - Do not spoof User-Agent, import browser cookies, intercept tokens, call private APIs, or automate sign-in.
 - Use a dedicated non-sensitive test conversation and non-sensitive sample files.
 - Stop before completing any purchase. A purchase flow must not complete inside the harness.

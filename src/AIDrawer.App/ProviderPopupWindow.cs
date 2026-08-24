@@ -3,7 +3,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Web.WebView2.Core;
 using Windows.Graphics;
-using Windows.System;
 
 namespace AIDrawer;
 
@@ -17,6 +16,7 @@ internal sealed class ProviderPopupWindow : IDisposable
     private readonly WebView2 _webView = new();
     private readonly ProviderDefinition _provider;
     private readonly Action<string, string, InfoBarSeverity> _reportState;
+    private readonly Action<NavigationPromptKind, Uri?> _requestNavigationPrompt;
     private readonly Action<ProviderPopupWindow> _closed;
     private bool _disposed;
 
@@ -24,10 +24,12 @@ internal sealed class ProviderPopupWindow : IDisposable
         ProviderDefinition provider,
         ControlledPopupKind popupKind,
         Action<string, string, InfoBarSeverity> reportState,
+        Action<NavigationPromptKind, Uri?> requestNavigationPrompt,
         Action<ProviderPopupWindow> closed)
     {
         _provider = provider;
         _reportState = reportState;
+        _requestNavigationPrompt = requestNavigationPrompt;
         _closed = closed;
         _window.Title = popupKind == ControlledPopupKind.Authentication
             ? $"{provider.DisplayName} sign-in"
@@ -45,9 +47,10 @@ internal sealed class ProviderPopupWindow : IDisposable
         ProviderDefinition provider,
         ControlledPopupKind popupKind,
         Action<string, string, InfoBarSeverity> reportState,
+        Action<NavigationPromptKind, Uri?> requestNavigationPrompt,
         Action<ProviderPopupWindow> closed)
     {
-        var popup = new ProviderPopupWindow(provider, popupKind, reportState, closed);
+        var popup = new ProviderPopupWindow(provider, popupKind, reportState, requestNavigationPrompt, closed);
         try
         {
             var controllerOptions = environment.CreateCoreWebView2ControllerOptions();
@@ -94,7 +97,7 @@ internal sealed class ProviderPopupWindow : IDisposable
 
                 case NavigationDisposition.OpenExternal:
                     args.Cancel = true;
-                    _ = OpenExternalUriAsync(args.Uri);
+                    RequestExternalNavigation(args.Uri);
                     return;
 
                 case NavigationDisposition.BlockUnsupported:
@@ -129,7 +132,7 @@ internal sealed class ProviderPopupWindow : IDisposable
 
                 case NavigationDisposition.OpenExternal:
                     args.Cancel = true;
-                    _ = OpenExternalUriAsync(args.Uri);
+                    ReportExternalFrameNavigationBlocked();
                     return;
 
                 case NavigationDisposition.BlockUnsupported:
@@ -173,7 +176,7 @@ internal sealed class ProviderPopupWindow : IDisposable
 
                 case PopupDisposition.OpenExternal:
                     args.Handled = true;
-                    _ = OpenExternalUriAsync(args.Uri);
+                    RequestExternalNavigation(args.Uri);
                     return;
 
                 case PopupDisposition.OpenControlledProviderWindow:
@@ -203,33 +206,38 @@ internal sealed class ProviderPopupWindow : IDisposable
         };
     }
 
-    private async Task OpenExternalUriAsync(string? rawUri)
+    private void RequestExternalNavigation(string? rawUri)
     {
         var uri = _provider.CreateSafeExternalUri(rawUri);
         if (uri is null)
         {
-            _reportState("Unsupported link blocked", "AI Drawer only opens safe HTTPS links in the system browser.", InfoBarSeverity.Warning);
+            _reportState(
+                "Unsupported link blocked",
+                "AI Drawer only opens reviewed HTTPS provider origins. This link was not opened.",
+                InfoBarSeverity.Warning);
             return;
         }
 
         _reportState(
-            "Opening link in your browser",
-            "This popup link is outside the selected provider. Query parameters were not forwarded.",
+            "External link needs confirmation",
+            "AI Drawer did not open this unreviewed origin. You can choose whether to open a sanitized link in your browser.",
             InfoBarSeverity.Informational);
-        try
-        {
-            await Launcher.LaunchUriAsync(uri);
-        }
-        catch
-        {
-            _reportState("Link could not be opened", "Windows could not open this HTTPS link.", InfoBarSeverity.Warning);
-        }
+        _requestNavigationPrompt(NavigationPromptKind.ExternalLink, uri);
     }
 
-    private void ReportPurchaseBlocked() => _reportState(
-        "Subscription opens on the provider's website",
-        "AI Drawer does not provide or process subscriptions. Purchases stay with the provider.",
+    private void ReportExternalFrameNavigationBlocked() => _reportState(
+        "External embedded navigation blocked",
+        "AI Drawer only embeds reviewed provider and authentication origins. This external frame was not opened.",
         InfoBarSeverity.Warning);
+
+    private void ReportPurchaseBlocked()
+    {
+        _reportState(
+            "Subscription and purchase blocked",
+            "AI Drawer does not provide or process subscriptions, billing, cancellations, refunds, or payment information.",
+            InfoBarSeverity.Warning);
+        _requestNavigationPrompt(NavigationPromptKind.PurchaseBlocked, null);
+    }
 
     private void Window_Closing(AppWindow sender, AppWindowClosingEventArgs args) => Dispose();
 

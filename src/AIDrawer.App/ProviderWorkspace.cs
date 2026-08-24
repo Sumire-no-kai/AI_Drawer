@@ -2,7 +2,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Web.WebView2.Core;
 using Windows.Foundation;
-using Windows.System;
 
 namespace AIDrawer;
 
@@ -55,6 +54,8 @@ internal sealed class ProviderWorkspace : IDisposable
     internal event EventHandler<string>? SuccessfulOpen;
 
     internal event EventHandler<WorkspaceProcessFailureEventArgs>? ProcessFailure;
+
+    internal event EventHandler<NavigationPromptRequestedEventArgs>? NavigationPromptRequested;
 
     internal event EventHandler? OperationCompleted;
 
@@ -344,7 +345,7 @@ internal sealed class ProviderWorkspace : IDisposable
 
                 case NavigationDisposition.OpenExternal:
                     args.Cancel = true;
-                    _ = OpenExternalUriAsync(core, args.Uri);
+                    RequestExternalNavigation(args.Uri);
                     return;
 
                 case NavigationDisposition.BlockUnsupported:
@@ -385,7 +386,7 @@ internal sealed class ProviderWorkspace : IDisposable
 
                 case NavigationDisposition.OpenExternal:
                     args.Cancel = true;
-                    _ = OpenExternalUriAsync(core, args.Uri);
+                    ReportExternalFrameNavigationBlocked();
                     return;
 
                 case NavigationDisposition.BlockUnsupported:
@@ -449,7 +450,7 @@ internal sealed class ProviderWorkspace : IDisposable
 
                 case PopupDisposition.OpenExternal:
                     args.Handled = true;
-                    _ = OpenExternalUriAsync(core, args.Uri);
+                    RequestExternalNavigation(args.Uri);
                     return;
 
                 default:
@@ -581,6 +582,7 @@ internal sealed class ProviderWorkspace : IDisposable
                 Provider,
                 popupKind,
                 (title, message, severity) => RaiseState(title, message, severity),
+                RequestNavigationPrompt,
                 closed =>
                 {
                     if (_popupWindows.Remove(closed))
@@ -713,58 +715,43 @@ internal sealed class ProviderWorkspace : IDisposable
         }
     }
 
-    private async Task OpenExternalUriAsync(CoreWebView2 sourceCore, string? rawUri)
+    private void RequestExternalNavigation(string? rawUri)
     {
         var externalUri = Provider.CreateSafeExternalUri(rawUri);
         if (externalUri is null)
         {
-            if (IsCurrent(sourceCore))
-            {
-                RaiseState(
-                    "Unsupported link blocked",
-                    "AI Drawer only opens safe HTTPS links in the system browser.",
-                    InfoBarSeverity.Warning);
-            }
-
-            return;
-        }
-
-        if (!IsCurrent(sourceCore))
-        {
+            RaiseState(
+                "Unsupported link blocked",
+                "AI Drawer only opens reviewed HTTPS provider origins. This link was not opened.",
+                InfoBarSeverity.Warning);
             return;
         }
 
         RaiseState(
-            "Opening link in your browser",
-            "This link is outside the selected provider workspace. Query parameters were not forwarded.",
+            "External link needs confirmation",
+            "AI Drawer did not open this unreviewed origin. You can choose whether to open a sanitized link in your browser.",
             InfoBarSeverity.Informational);
-        try
-        {
-            var launched = await Launcher.LaunchUriAsync(externalUri);
-            if (IsCurrent(sourceCore) && !launched)
-            {
-                RaiseState(
-                    "Link could not be opened",
-                    "Windows did not find an application that could open this HTTPS link.",
-                    InfoBarSeverity.Warning);
-            }
-        }
-        catch (Exception exception)
-        {
-            if (IsCurrent(sourceCore))
-            {
-                RaiseState(
-                    "Link could not be opened",
-                    $"Windows could not open this HTTPS link ({exception.GetType().Name}).",
-                    InfoBarSeverity.Warning);
-            }
-        }
+        RequestNavigationPrompt(NavigationPromptKind.ExternalLink, externalUri);
     }
 
-    private void RaisePurchaseState() => RaiseState(
-        "Subscription opens on the provider's website",
-        "AI Drawer does not provide or process subscriptions. Purchases stay with the provider.",
+    private void ReportExternalFrameNavigationBlocked() => RaiseState(
+        "External embedded navigation blocked",
+        "AI Drawer only embeds reviewed provider and authentication origins. This external frame was not opened.",
         InfoBarSeverity.Warning);
+
+    private void RaisePurchaseState()
+    {
+        RaiseState(
+            "Subscription and purchase blocked",
+            "AI Drawer does not provide or process subscriptions, billing, cancellations, refunds, or payment information.",
+            InfoBarSeverity.Warning);
+        RequestNavigationPrompt(NavigationPromptKind.PurchaseBlocked, externalUri: null);
+    }
+
+    private void RequestNavigationPrompt(NavigationPromptKind kind, Uri? externalUri) =>
+        NavigationPromptRequested?.Invoke(
+            this,
+            new NavigationPromptRequestedEventArgs(WorkspaceId, kind, externalUri));
 
     private void SetMemoryTarget(CoreWebView2MemoryUsageTargetLevel level)
     {
@@ -997,4 +984,20 @@ internal sealed class WorkspaceStateChangedEventArgs(
     internal InfoBarSeverity Severity { get; } = severity;
     internal bool RequiresRecovery { get; } = requiresRecovery;
     internal WorkspaceActivity Activity { get; } = activity;
+}
+
+internal enum NavigationPromptKind
+{
+    ExternalLink,
+    PurchaseBlocked
+}
+
+internal sealed class NavigationPromptRequestedEventArgs(
+    string workspaceId,
+    NavigationPromptKind kind,
+    Uri? externalUri) : EventArgs
+{
+    internal string WorkspaceId { get; } = workspaceId;
+    internal NavigationPromptKind Kind { get; } = kind;
+    internal Uri? ExternalUri { get; } = externalUri;
 }
