@@ -66,7 +66,7 @@ internal sealed record ProviderDefinition(
         return NavigationDisposition.OpenExternal;
     }
 
-    internal Uri? CreateSafeExternalUri(string? rawUri)
+    internal static Uri? CreateSafeExternalUri(string? rawUri)
     {
         if (!TryCreateSafeHttpsUri(rawUri, out var uri))
         {

@@ -1,4 +1,5 @@
 using AIDrawer.Core;
+using System.Globalization;
 using System.Text.Json;
 using Windows.Security.Cryptography;
 using Windows.Security.Cryptography.DataProtection;
@@ -174,7 +175,7 @@ internal sealed class WorkspaceSessionStore
         });
     }
 
-    internal async Task<AppSettings> LoadSettingsAsync()
+    internal static async Task<AppSettings> LoadSettingsAsync()
     {
         try
         {
@@ -207,7 +208,7 @@ internal sealed class WorkspaceSessionStore
         }
     }
 
-    internal Task SaveSettingsAsync(AppSettings settings) =>
+    internal static Task SaveSettingsAsync(AppSettings settings) =>
         EnqueueStorageWriteAsync(async () =>
         {
             Directory.CreateDirectory(AppDataRoot);
@@ -342,7 +343,7 @@ internal sealed class WorkspaceSessionStore
 
     private static string CreateBackupPath()
     {
-        var stamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmssfff");
+        var stamp = DateTimeOffset.UtcNow.ToString("yyyyMMdd-HHmmssfff", CultureInfo.InvariantCulture);
         return Path.Combine(AppDataRoot, $"workspaces-v1.{stamp}.recovery-backup.json");
     }
 

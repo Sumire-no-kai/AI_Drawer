@@ -2,12 +2,26 @@
 
 This is the durable development record for implementation decisions, verified behavior, limitations, and open work. It is not a release changelog. Planned behavior must not be presented as shipped or provider-compatible behavior.
 
+## 2026-08-24 — M4 multi-architecture candidates and support policy
+
+### Implemented behavior
+
+- Extended the internal candidate tool and manual workflow from x64-only to an explicit x64, x86, or ARM64 selection. Platform and runtime identifiers are normalized separately, and each generated MSIX is rejected unless its manifest architecture matches the request.
+- Moved support-reminder eligibility into a deterministic Core policy. `Not now` now records both a 90-day deadline and the next major release; the reminder can return only after both conditions are satisfied. Existing settings without the new major-release field retain their prior date-based snooze rather than being discarded.
+- Resolved the .NET `10.0.400` Recommended analyzer findings exposed during the fresh rebuild: application lifetime is now explicitly rooted, culture-sensitive recovery backup names are fixed to invariant format, and static/concrete member shapes match their actual ownership. Two WinUI lifecycle ownership warnings are narrowly documented and suppressed because disposal remains tied to the window's explicit exit path rather than the CLR `IDisposable` convention.
+
+### Verification boundary
+
+- The Core Release build completed with zero warnings and errors, and all 17 locator, lifecycle, and support-reminder checks passed. Application Release and application-check Debug/Release builds passed the Recommended analyzer set with warnings treated as errors. The nine privacy-safe non-GUI application checks passed.
+- Local end-to-end candidate runs generated and inspected one x64, one x86, and one ARM64 unsigned MSIX. Each run verified package identity and architecture, absence of `AppxSignature.p7x` and private-key files, and emitted a SHA-256 checksum plus candidate manifest. No candidate was installed, launched, registered, or published.
+- The local toolchain still lacks `mspdbcmf.exe`, so no symbol package was generated. Device runtime, signing, identity/version approval, installation/update/uninstall, and Public Beta publication remain open.
+
 ## 2026-08-24 — M4 internal packaging and CI foundation
 
 ### Implemented foundation
 
 - Pinned the repository to the .NET `10.0.400` SDK feature band and added Windows clean-checkout CI for production Debug/Release compilation, Compatibility Lab Debug/Release compilation, application-check compilation, and the privacy-safe Core policy harness. The GUI/application harness is compiled but not executed by CI because it includes separately authorized runtime paths.
-- Added a manually triggered internal-candidate workflow and local PowerShell entry point. They restore and build the x64 Release MSIX without signing, distinguish the application package from framework dependency packages, reject an unexpected package signature or private-key file, read package identity and architecture from the generated MSIX, and emit SHA-256 plus machine-readable source/package metadata.
+- Added a manually triggered internal-candidate workflow and local PowerShell entry point. They initially restored and built the x64 Release MSIX without signing, distinguished the application package from framework dependency packages, rejected an unexpected package signature or private-key file, read package identity and architecture from the generated MSIX, and emitted SHA-256 plus machine-readable source/package metadata. A later M4 slice expanded this to x86 and ARM64.
 - Added non-sensitive bug and provider-evidence templates, a pull-request privacy/security checklist, current known limitations, and a Public Beta release checklist. The repository security policy explicitly forbids public sensitive reports while no private channel exists.
 
 ### Verification boundary

@@ -24,7 +24,8 @@ public sealed record AppSettings(
     DateTimeOffset? FirstUsedUtc = null,
     int SuccessfulOpenCount = 0,
     bool SupportReminderDismissed = false,
-    DateTimeOffset? SupportReminderSnoozedUntilUtc = null)
+    DateTimeOffset? SupportReminderSnoozedUntilUtc = null,
+    int SupportReminderSnoozedUntilMajorRelease = 0)
 {
     public const int CurrentSchemaVersion = 1;
 }

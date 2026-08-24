@@ -16,6 +16,10 @@ namespace AIDrawer;
 public sealed partial class MainPage : Page
 {
     private static readonly Uri SupportUri = new("https://buymeacoffee.com/edward_lee");
+    private static readonly SupportReminderPolicy SupportReminderPolicy = new(
+        typeof(MainPage).Assembly.GetName().Version?.Major is > 0 and var majorRelease
+            ? majorRelease
+            : 1);
     private const int CurrentOnboardingVersion = 2;
     private readonly Dictionary<string, WorkspaceTabView> _workspaceTabViews = new(StringComparer.Ordinal);
     private readonly HashSet<string> _closingWorkspaceIds = new(StringComparer.Ordinal);
@@ -122,7 +126,7 @@ public sealed partial class MainPage : Page
         }
 
         _pageState = PageLifecycleState.Loading;
-        _settings = await _sessionStore.LoadSettingsAsync();
+        _settings = await WorkspaceSessionStore.LoadSettingsAsync();
         if (_pageState != PageLifecycleState.Loading)
         {
             return;
@@ -565,13 +569,13 @@ public sealed partial class MainPage : Page
             _ => -1
         };
 
-        if (_workspaceCoordinator is null || providerIndex < 0 || providerIndex >= _workspaceCoordinator.Providers.Count)
+        if (_workspaceCoordinator is null || providerIndex < 0 || providerIndex >= WorkspaceCoordinator.Providers.Count)
         {
             return;
         }
 
         args.Handled = true;
-        var provider = _workspaceCoordinator.Providers[providerIndex];
+        var provider = WorkspaceCoordinator.Providers[providerIndex];
         var existingWorkspace = _workspaces.LastOrDefault(workspace => workspace.Provider?.Id == provider.Id);
         if (existingWorkspace is not null)
         {
@@ -733,7 +737,7 @@ public sealed partial class MainPage : Page
             return;
         }
 
-        var provider = coordinator.Providers.FirstOrDefault(candidate => candidate.Id == providerId);
+        var provider = WorkspaceCoordinator.Providers.FirstOrDefault(candidate => candidate.Id == providerId);
         if (provider is null)
         {
             return;
@@ -859,15 +863,15 @@ public sealed partial class MainPage : Page
         ProviderChooser.RowDefinitions.Clear();
         ProviderChooser.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         ProviderChooser.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var rowCount = (_workspaceCoordinator.Providers.Count + 1) / 2;
+        var rowCount = (WorkspaceCoordinator.Providers.Count + 1) / 2;
         for (var rowIndex = 0; rowIndex < rowCount; rowIndex++)
         {
             ProviderChooser.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         }
 
-        for (var providerIndex = 0; providerIndex < _workspaceCoordinator.Providers.Count; providerIndex++)
+        for (var providerIndex = 0; providerIndex < WorkspaceCoordinator.Providers.Count; providerIndex++)
         {
-            var provider = _workspaceCoordinator.Providers[providerIndex];
+            var provider = WorkspaceCoordinator.Providers[providerIndex];
             var rowContent = new Grid
             {
                 ColumnSpacing = 10,
@@ -1178,7 +1182,7 @@ public sealed partial class MainPage : Page
         {
             var provider = restored.ProviderId is null
                 ? null
-                : _workspaceCoordinator.Providers.FirstOrDefault(candidate =>
+                : WorkspaceCoordinator.Providers.FirstOrDefault(candidate =>
                     string.Equals(candidate.Id, restored.ProviderId, StringComparison.Ordinal));
             var locator = _settings.RestoreExactWorkspace
                 ? provider?.CreateRestoreLocator(restored.RestoreLocator)
@@ -1294,7 +1298,7 @@ public sealed partial class MainPage : Page
     {
         try
         {
-            await _sessionStore.SaveSettingsAsync(_settings);
+            await WorkspaceSessionStore.SaveSettingsAsync(_settings);
         }
         catch (Exception exception)
         {
@@ -1453,18 +1457,19 @@ public sealed partial class MainPage : Page
     private void UpdateSupportReminderVisibility()
     {
         if (_activeWorkspace?.IsHome != true
-            || _settings.SupportReminderDismissed
-            || _settings.SupportReminderSnoozedUntilUtc > DateTimeOffset.UtcNow
-            || _settings.FirstUsedUtc is not { } firstUsed)
+            || !SupportReminderPolicy.IsEligible(
+                DateTimeOffset.UtcNow,
+                _settings.FirstUsedUtc,
+                _settings.SuccessfulOpenCount,
+                _settings.SupportReminderDismissed,
+                _settings.SupportReminderSnoozedUntilUtc,
+                _settings.SupportReminderSnoozedUntilMajorRelease))
         {
             HomeSupportReminder.Visibility = Visibility.Collapsed;
             return;
         }
 
-        var age = DateTimeOffset.UtcNow - firstUsed;
-        var eligible = age >= TimeSpan.FromDays(7)
-            && (age >= TimeSpan.FromDays(14) || _settings.SuccessfulOpenCount >= 20);
-        HomeSupportReminder.Visibility = eligible ? Visibility.Visible : Visibility.Collapsed;
+        HomeSupportReminder.Visibility = Visibility.Visible;
     }
 
     private async void SupportDevelopmentButton_Click(object sender, RoutedEventArgs e)
@@ -1500,9 +1505,11 @@ public sealed partial class MainPage : Page
             return;
         }
 
+        var snooze = SupportReminderPolicy.CreateSnooze(DateTimeOffset.UtcNow);
         _settings = _settings with
         {
-            SupportReminderSnoozedUntilUtc = DateTimeOffset.UtcNow.AddDays(90)
+            SupportReminderSnoozedUntilUtc = snooze.UntilUtc,
+            SupportReminderSnoozedUntilMajorRelease = snooze.UntilMajorRelease
         };
         HomeSupportReminder.Visibility = Visibility.Collapsed;
         await PersistSettingsAsync();

@@ -2,7 +2,7 @@
 
 This file describes the current repository state. It is not a Public Beta release note and does not establish provider or platform compatibility.
 
-- The automated candidate is intentionally unsigned and is for build-pipeline and package inspection only. It must not be published as an end-user download.
+- The x64, x86, and ARM64 automated candidates are intentionally unsigned and are for build-pipeline and package inspection only. They must not be published as end-user downloads.
 - Package identity, public versioning, publisher identity, certificate ownership, and the GitHub Releases signing design are not yet approved.
 - The current package remains framework-dependent. The PRD decision between framework-dependent and self-contained public MSIX packaging is still open.
 - GitHub private vulnerability reporting is not enabled. Public Beta is blocked until a private security-reporting path exists and is documented.

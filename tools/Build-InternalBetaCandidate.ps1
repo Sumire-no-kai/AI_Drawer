@@ -3,7 +3,7 @@ param(
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$')]
     [string]$CandidateLabel = ("local-{0:yyyyMMdd-HHmmss}" -f (Get-Date).ToUniversalTime()),
 
-    [ValidateSet('x64')]
+    [ValidateSet('x64', 'x86', 'arm64')]
     [string]$Architecture = 'x64',
 
     [string]$DotNetPath = 'dotnet',
@@ -27,6 +27,9 @@ else {
 }
 $candidateDirectory = Join-Path $resolvedOutputRoot $CandidateLabel
 $packageDirectory = Join-Path $candidateDirectory 'package'
+$normalizedArchitecture = $Architecture.ToLowerInvariant()
+$platform = if ($normalizedArchitecture -eq 'arm64') { 'ARM64' } else { $normalizedArchitecture }
+$runtimeIdentifier = "win-$normalizedArchitecture"
 
 Push-Location $repositoryRoot
 try {
@@ -51,7 +54,7 @@ try {
 
     New-Item -ItemType Directory -Path $packageDirectory -Force | Out-Null
 
-    & $DotNetPath restore $projectPath --runtime "win-$Architecture" "/p:Platform=$Architecture"
+    & $DotNetPath restore $projectPath --runtime $runtimeIdentifier "/p:Platform=$platform"
     if ($LASTEXITCODE -ne 0) {
         throw "Restore failed with exit code $LASTEXITCODE."
     }
@@ -63,8 +66,8 @@ try {
         '/t:Build'
         '/m'
         '/p:Configuration=Release'
-        "/p:Platform=$Architecture"
-        "/p:RuntimeIdentifier=win-$Architecture"
+        "/p:Platform=$platform"
+        "/p:RuntimeIdentifier=$runtimeIdentifier"
         '/p:GenerateAppxPackageOnBuild=true'
         '/p:AppxPackageSigningEnabled=false'
         "/p:AppxPackageDir=$packageDirectoryWithSeparator"
@@ -118,8 +121,8 @@ try {
         throw "Expected package identity 'AIDrawer.App', but found '$($identity.Name)'."
     }
 
-    if ($identity.ProcessorArchitecture -ne $Architecture) {
-        throw "Expected package architecture '$Architecture', but found '$($identity.ProcessorArchitecture)'."
+    if ($identity.ProcessorArchitecture -ne $normalizedArchitecture) {
+        throw "Expected package architecture '$normalizedArchitecture', but found '$($identity.ProcessorArchitecture)'."
     }
 
     $sensitiveFiles = @(Get-ChildItem -LiteralPath $candidateDirectory -File -Recurse | Where-Object Extension -In '.pfx', '.p12', '.key', '.pem')

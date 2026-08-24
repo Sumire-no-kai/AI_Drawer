@@ -8,6 +8,7 @@ namespace AIDrawer;
 public static class Program
 {
     private const string SingleInstanceKey = "AI Drawer";
+    private static App? _application;
 
     [STAThread]
     public static int Main(string[] args)
@@ -23,7 +24,7 @@ public static class Program
         {
             var context = new DispatcherQueueSynchronizationContext(DispatcherQueue.GetForCurrentThread());
             SynchronizationContext.SetSynchronizationContext(context);
-            new App();
+            _application = new App();
         });
 
         return 0;

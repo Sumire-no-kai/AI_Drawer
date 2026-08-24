@@ -22,8 +22,9 @@ This checklist separates an internal package build from a publishable Public Bet
 - [ ] The independent website is deployed from its own repository and release lifecycle with `/`, `/download`, `/providers`, `/privacy`, `/security`, `/changelog`, and `/support` routes.
 - [ ] Privacy, security, provider-status, independence, unofficial-product, WebView2 session-data, and purchase-boundary disclosures agree across the app, website, README, and release notes.
 - [ ] GitHub private vulnerability reporting or another reviewed private security channel is enabled and tested.
-- [ ] Bug and provider-evidence templates reject sensitive provider/account data and distinguish provider behavior from native-shell defects.
-- [ ] The BMC link and local reminder use the approved disclosure and never gate functionality.
+- [x] Bug and provider-evidence templates reject sensitive provider/account data and distinguish provider behavior from native-shell defects.
+- [x] The local BMC reminder policy is deterministic, never eligible in the first seven days, supports permanent dismissal, and requires both 90 days and a later major release after `Not now`.
+- [ ] The BMC system-browser link and reminder placement/disclosure pass focused runtime and accessibility checks without appearing over provider content.
 
 ## Release publication
 
