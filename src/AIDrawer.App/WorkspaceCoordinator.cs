@@ -585,12 +585,15 @@ internal sealed class WorkspaceCoordinator : IDisposable
 
     private void ReleaseInactiveWorkspacesForMemoryPressure(string failedWorkspaceId)
     {
-        foreach (var workspace in _workspaces.Values.Where(workspace =>
-                     !string.Equals(workspace.WorkspaceId, failedWorkspaceId, StringComparison.Ordinal)
-                     && !ReferenceEquals(workspace, ActiveWorkspace)
-                     && workspace.IsLive).ToArray())
+        var liveWorkspaces = _workspaces.Values.Where(workspace => workspace.IsLive).ToList();
+        foreach (var workspaceId in _lifecyclePolicy.SelectForMemoryPressure(
+                     CreateLiveStates(liveWorkspaces),
+                     failedWorkspaceId))
         {
-            workspace.DisposeView();
+            if (_workspaces.TryGetValue(workspaceId, out var workspace))
+            {
+                workspace.DisposeView();
+            }
         }
     }
 

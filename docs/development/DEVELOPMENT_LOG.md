@@ -2,6 +2,30 @@
 
 This is the durable development record for implementation decisions, verified behavior, limitations, and open work. It is not a release changelog. Planned behavior must not be presented as shipped or provider-compatible behavior.
 
+## 2026-08-25 — M4 evidence closeout, security remediation, and support reminder
+
+### Implemented and reviewed
+
+- Changed count-based support-reminder eligibility from 20 to 7 successful workspace opens while retaining the first-seven-calendar-days minimum. The native Home reminder now brings itself into view once per application run when eligible. `Not now` still requires both 90 days and a later major release before another reminder, `Don't ask again` remains permanent, and the Settings support entry remains continuously available without adding a donation badge over provider content.
+- Completed an independent repository-level security scan against `d364d126e02f2a1ea19881e942e312de2955fa68` and remediated its four confirmed findings. The Compatibility Lab now starts in a local fresh disposable profile and fail-closed safe mode; an explicit fresh-only observation mode is required before provider-default HTTPS redirects, popups, permission prompts, or downloads can be observed. Known purchase routes and certificate errors remain blocked in both modes, and only a sanitized current origin is displayed.
+- Extended download-name sanitization to replace control and bidirectional-formatting characters, pinned every GitHub Action reference to a reviewed full commit SHA, added weekly GitHub Actions Dependabot checks, and made the candidate inspector reject private-key extensions inside the MSIX as well as in the surrounding output.
+- Corrected recovery review gaps: repeated renderer-unresponsive state now offers a real `Keep waiting` action, frame/GPU/utility exits no longer force a misleading manual-recovery screen while WebView2 may self-recover, and out-of-memory cleanup skips inactive workspaces that are handling navigation, permission, download, popup, or WebView creation operations.
+- Added native high-contrast resource mappings and focus cycling for recovery, session-recovery, prompt, and Settings overlays. These are implementation and generated UI Automation checks, not Narrator, 200% DPI, reduced-motion, or multi-OS device acceptance.
+
+### Verification and failure record
+
+- Core passed 42 policy checks. The application harness passed 17 non-GUI checks and all 21 checks with four isolated UI Automation flows, including visible BMC presentation, keyboard-focusable dismissal actions, 90-day/major-release snooze persistence, permanent dismissal, settings persistence, restart restoration, and corrupt-session recovery. The support URL itself was not opened.
+- The first BMC UI assertion found the eligible card outside the default viewport. The product now calls native bring-into-view once when presenting the card; the repeated full UI suite passed without test-driven scrolling. Generated test roots created no normal-provider profile for the BMC case and were removed after each run.
+- A later full-suite run hit the test's 10-second observation limit after invoking permanent dismissal. The assertion now requires both the hidden native reminder and the persisted dismissal state within a 20-second asynchronous-write window. Two consecutive full 21-check UI runs then passed; no event-loss claim is made from the earlier timeout.
+- Production x64, x86, and ARM64 Debug and Release builds passed with zero warnings and errors. Compatibility Lab and application-test x64 Debug and Release builds also passed with warnings as errors. All four maintained projects passed `dotnet format --verify-no-changes`.
+- The machine initially had only .NET runtimes, so the official .NET `10.0.400` Windows x64 SDK ZIP was downloaded into the ignored `artifacts` tree. Its SHA-512 matched Microsoft's release metadata before use. An online NuGet query then reported no known vulnerable direct or transitive packages for the production app, Lab, or application tests.
+- The first internal-candidate attempt used the sandboxed default package cache and failed at NuGet restore. Its empty generated candidate directory was removed; the repeated scoped-network run used the reviewed package cache and passed the x64 unsigned-MSIX contract. The package remained uninstalled and unpublished, had SHA-256 `f6b40b467a646336b0a4c31515b1128062e9de2696491cb291335d9745b02114`, and still emitted the known missing-`mspdbcmf.exe` warning, so no symbol package was generated.
+
+### Remaining evidence boundary
+
+- Account/provider-runtime checks remain open: signed-in cache versus website-data reset, real downloads, controlled login popups, external-browser handoff, known and newly discovered purchase routes, certificate-failure fixtures, renderer/browser/OOM fault injection, and sustained live-WebView pressure measurement.
+- Device and release checks remain open: x86/ARM64 runtime, Windows 10/11 and 200% DPI/Narrator coverage, installed startup registration, final identity and packaging decision, signing, exact-artifact install/update/rollback/uninstall, private vulnerability reporting, monitored Store support destination, website, Store submission, and publication.
+
 ## 2026-08-24 — Microsoft Copilot candidate and home interaction polish
 
 ### Implemented behavior

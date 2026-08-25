@@ -27,10 +27,10 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
 
       - name: Set up .NET
-        uses: actions/setup-dotnet@v6
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
           global-json-file: global.json
 
@@ -43,7 +43,7 @@ jobs:
         run: ./tools/Build-InternalBetaCandidate.ps1 -CandidateLabel $env:CANDIDATE_LABEL -Architecture $env:CANDIDATE_ARCHITECTURE -OutputRoot $env:CANDIDATE_OUTPUT_ROOT
 
       - name: Upload internal candidate
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ai-drawer-internal-${{ inputs.candidate_label }}-${{ inputs.architecture }}
           path: ${{ runner.temp }}/ai-drawer-beta-candidates/${{ inputs.candidate_label }}

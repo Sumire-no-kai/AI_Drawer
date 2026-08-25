@@ -41,6 +41,7 @@ public sealed partial class MainPage : Page
     private long _selectionVersion;
     private string? _providerResetInProgress;
     private bool _updatingSettingsUi;
+    private bool _supportReminderPresentedThisRun;
     private bool _processingNavigationPrompts;
     private bool _sessionWasMissing;
     private int _providerChooserColumnCount;
@@ -272,6 +273,7 @@ public sealed partial class MainPage : Page
             ShowWorkspaceActivity(args.Activity, args.Title);
             StatusBanner.Visibility = Visibility.Collapsed;
             RecoveryPanel.Visibility = Visibility.Collapsed;
+            RecoveryKeepWaitingButton.Visibility = Visibility.Collapsed;
             return;
         }
 
@@ -281,6 +283,7 @@ public sealed partial class MainPage : Page
         {
             StatusBanner.Visibility = Visibility.Collapsed;
             RecoveryPanel.Visibility = Visibility.Collapsed;
+            RecoveryKeepWaitingButton.Visibility = Visibility.Collapsed;
             return;
         }
 
@@ -288,6 +291,9 @@ public sealed partial class MainPage : Page
 
         RecoveryTitle.Text = args.Title;
         RecoveryMessage.Text = args.Message;
+        RecoveryKeepWaitingButton.Visibility = args.CanKeepWaiting
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         RecoveryPanel.Visibility = args.RequiresRecovery ? Visibility.Visible : Visibility.Collapsed;
         if (args.RequiresRecovery)
         {
@@ -505,6 +511,16 @@ public sealed partial class MainPage : Page
         {
             await RestartActiveWorkspaceFromUiAsync(coordinator);
         }
+    }
+
+    private void RecoveryKeepWaitingButton_Click(object sender, RoutedEventArgs e)
+    {
+        RecoveryPanel.Visibility = Visibility.Collapsed;
+        RecoveryKeepWaitingButton.Visibility = Visibility.Collapsed;
+        ShowStatus(
+            "Continuing to wait",
+            "AI Drawer left this workspace open so the provider can recover without losing its local profile.",
+            InfoBarSeverity.Informational);
     }
 
     private async Task RestartActiveWorkspaceFromUiAsync(WorkspaceCoordinator coordinator)
@@ -1951,6 +1967,23 @@ public sealed partial class MainPage : Page
         }
 
         HomeSupportReminder.Visibility = Visibility.Visible;
+        if (_supportReminderPresentedThisRun)
+        {
+            return;
+        }
+
+        _supportReminderPresentedThisRun = true;
+        _ = DispatcherQueue.TryEnqueue(() =>
+        {
+            if (HomeSupportReminder.Visibility == Visibility.Visible)
+            {
+                HomeSupportReminder.StartBringIntoView(new BringIntoViewOptions
+                {
+                    AnimationDesired = _uiSettings.AnimationsEnabled,
+                    VerticalAlignmentRatio = 0.5
+                });
+            }
+        });
     }
 
     private async void SupportDevelopmentButton_Click(object sender, RoutedEventArgs e)

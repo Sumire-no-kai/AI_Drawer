@@ -62,6 +62,9 @@ public static class WebViewRecoveryPolicy
             WebViewFailureKind.BrowserExited => new(
                 WebViewRecoveryAction.RecreateBrowserEnvironment,
                 RequiresRecovery: false),
+            WebViewFailureKind.FrameRendererExited or WebViewFailureKind.GpuOrUtilityExited => new(
+                WebViewRecoveryAction.WaitForRenderer,
+                RequiresRecovery: false),
             _ => new(WebViewRecoveryAction.RequireManualRecovery, RequiresRecovery: true)
         };
     }
