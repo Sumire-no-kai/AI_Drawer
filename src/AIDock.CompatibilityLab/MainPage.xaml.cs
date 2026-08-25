@@ -18,6 +18,7 @@ public sealed partial class MainPage : Page
     private string? _profilePath;
     private string? _freshProfilePath;
     private string? _freshProfileRoot;
+    private bool _observationMode;
     private DateTimeOffset _previousSampleTime;
     private TimeSpan _previousProcessorTime;
 
@@ -28,12 +29,10 @@ public sealed partial class MainPage : Page
         ProviderBox.ItemsSource = ProviderCatalog.InitialCandidates;
         ProviderBox.SelectedItem = ProviderCatalog.InitialCandidates.Single(provider => provider.Id == "gemini");
 
-        ProfileRootBox.Text = Directory.Exists(@"D:\")
-            ? @"D:\AI Dock TestData"
-            : Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                "AI Dock",
-                "CompatibilityLab");
+        ProfileRootBox.Text = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "AI Drawer",
+            "CompatibilityLab");
 
         UpdateSelectedProviderUi();
         _metricsTimer.Tick += MetricsTimer_Tick;
@@ -68,6 +67,12 @@ public sealed partial class MainPage : Page
 
             var root = Path.GetFullPath(ProfileRootBox.Text.Trim());
             var mode = (ProfileModeBox.SelectedItem as ComboBoxItem)?.Tag?.ToString();
+            _observationMode = ObservationModeBox.IsChecked == true;
+            if (_observationMode && !string.Equals(mode, "fresh", StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException("Provider observation mode requires a fresh disposable profile.");
+            }
+
             _currentProvider = provider;
             _profilePath = BuildProfilePath(root, provider, mode);
             _freshProfilePath = mode == "fresh" ? _profilePath : null;
@@ -91,7 +96,10 @@ public sealed partial class MainPage : Page
             _profilePath = null;
             _freshProfilePath = null;
             _freshProfileRoot = null;
+            _observationMode = false;
+            ObservationModeBox.IsChecked = false;
             ProfilePathText.Text = "Profile: not started";
+            CurrentOriginText.Text = "Current origin: not started";
             SetConfigurationEnabled(true);
             UpdateSelectedProviderUi();
             Log($"start-failed {exception.GetType().Name}");
@@ -143,6 +151,7 @@ public sealed partial class MainPage : Page
 
         core.NavigationStarting += (_, args) =>
         {
+            CurrentOriginText.Text = $"Current origin: {ProviderDefinition.CreateOriginLabel(args.Uri)}";
             if (provider.IsKnownPurchaseUri(args.Uri))
             {
                 args.Cancel = true;
@@ -150,8 +159,21 @@ public sealed partial class MainPage : Page
                 return;
             }
 
-            Log($"navigation-start scheme={SafeEventText.SchemeCategory(args.Uri)}");
+            if (!provider.IsProviderAppUri(args.Uri)
+                && !(_observationMode && provider.IsSafeObservationUri(args.Uri)))
+            {
+                args.Cancel = true;
+                Log($"navigation-blocked scheme={SafeEventText.SchemeCategory(args.Uri)}");
+                return;
+            }
+
+            Log(_observationMode
+                ? $"navigation-observation scheme={SafeEventText.SchemeCategory(args.Uri)}"
+                : $"navigation-start scheme={SafeEventText.SchemeCategory(args.Uri)}");
         };
+
+        core.SourceChanged += (_, _) =>
+            CurrentOriginText.Text = $"Current origin: {ProviderDefinition.CreateOriginLabel(core.Source)}";
 
         core.NavigationCompleted += (_, args) =>
             Log(args.IsSuccess
@@ -167,13 +189,58 @@ public sealed partial class MainPage : Page
                 return;
             }
 
-            Log($"popup-request scheme={SafeEventText.SchemeCategory(args.Uri)}");
+            if (_observationMode && provider.IsSafeObservationUri(args.Uri))
+            {
+                Log($"popup-observation scheme={SafeEventText.SchemeCategory(args.Uri)}");
+                return;
+            }
+
+            args.Handled = true;
+            Log($"popup-blocked scheme={SafeEventText.SchemeCategory(args.Uri)}");
         };
 
         core.PermissionRequested += (_, args) =>
-            Log($"permission-request kind={args.PermissionKind}");
+        {
+            args.SavesInProfile = false;
+            if (!_observationMode)
+            {
+                args.State = CoreWebView2PermissionState.Deny;
+            }
 
-        core.DownloadStarting += (_, _) => Log("download-starting");
+            Log($"permission-{(_observationMode ? "observation" : "blocked")} kind={args.PermissionKind}");
+        };
+
+        core.DownloadStarting += (_, args) =>
+        {
+            if (!_observationMode)
+            {
+                args.Cancel = true;
+                args.Handled = true;
+            }
+
+            Log(_observationMode ? "download-observation" : "download-blocked");
+        };
+
+        core.ServerCertificateErrorDetected += (_, args) =>
+        {
+            args.Action = CoreWebView2ServerCertificateErrorAction.Cancel;
+            Log("certificate-error-blocked");
+        };
+
+        core.FrameCreated += (_, args) =>
+        {
+            args.Frame.NavigationStarting += (_, frameArgs) =>
+            {
+                if (provider.IsKnownPurchaseUri(frameArgs.Uri)
+                    || (!provider.IsProviderAppUri(frameArgs.Uri)
+                        && !(_observationMode && provider.IsSafeObservationUri(frameArgs.Uri))))
+                {
+                    frameArgs.Cancel = true;
+                    Log("frame-navigation-blocked");
+                }
+            };
+        };
+
         core.ProcessFailed += (_, args) =>
             Log($"process-failed kind={args.ProcessFailedKind} reason={args.Reason}");
     }
@@ -238,6 +305,7 @@ public sealed partial class MainPage : Page
         ProviderBox.IsEnabled = isEnabled;
         ProfileRootBox.IsEnabled = isEnabled;
         ProfileModeBox.IsEnabled = isEnabled;
+        ObservationModeBox.IsEnabled = isEnabled;
     }
 
     private async Task EndTestAsync()
@@ -250,7 +318,10 @@ public sealed partial class MainPage : Page
         _profilePath = null;
         _freshProfilePath = null;
         _freshProfileRoot = null;
+        _observationMode = false;
+        ObservationModeBox.IsChecked = false;
         ProfilePathText.Text = "Profile: not started";
+        CurrentOriginText.Text = "Current origin: not started";
         SetConfigurationEnabled(true);
         UpdateSelectedProviderUi();
         Log("webview-closed");
@@ -419,6 +490,7 @@ public sealed partial class MainPage : Page
         _environment = null;
         _freshProfilePath = null;
         _freshProfileRoot = null;
+        _observationMode = false;
         await DeleteFreshProfileAfterReleaseAsync(freshProfileRoot, freshProfilePath);
     }
 
@@ -427,6 +499,7 @@ public sealed partial class MainPage : Page
         _metricsTimer.Stop();
         _webView?.Close();
         _webView = null;
+        CurrentOriginText.Text = "Current origin: not started";
         ReloadButton.IsEnabled = false;
         RestartButton.IsEnabled = false;
         if (WebViewHost is not null)

@@ -6,7 +6,7 @@ public sealed class SupportReminderPolicy
     private static readonly TimeSpan TimeEligibilityAge = TimeSpan.FromDays(14);
     private static readonly TimeSpan SnoozeDuration = TimeSpan.FromDays(90);
 
-    public const int SuccessfulOpenThreshold = 20;
+    public const int SuccessfulOpenThreshold = 7;
 
     private readonly int _currentMajorRelease;
 

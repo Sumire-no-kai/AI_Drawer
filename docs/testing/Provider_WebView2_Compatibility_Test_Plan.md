@@ -36,13 +36,18 @@ An international Doubao-family entry is deliberately not hard-coded yet. The pre
 - Use a dedicated non-sensitive test conversation and non-sensitive sample files.
 - Stop before any purchase. A blocked route is evidence only for that route and release; it is never a blanket payment guarantee.
 
+The Compatibility Lab starts in **safe mode** with a `Fresh disposable` profile. Safe mode permits only the selected provider's exact HTTPS home origin and cancels unreviewed redirects, popups, permissions, downloads, and certificate errors. The current sanitized origin remains visible so the tester can see which origin owns the page without recording a full URL.
+
+Some authentication, popup, permission, download, and external-navigation cases cannot be observed under that fail-closed default. For those cases only, the tester may explicitly enable **Provider observation mode**. Observation mode is restricted to a fresh disposable profile, accepts only HTTPS with no credentials or custom port, continues to block known purchase routes and certificate errors, and otherwise lets WebView2 present its normal provider-controlled behavior. It is an evidence-collection exception, not a production policy or compatibility claim. End the test immediately after the scoped case so the generated profile can be deleted.
+
 ## Test run setup
 
 1. Record the date, tester-assigned run ID, Git commit, Windows version/build, architecture, .NET SDK, Windows App SDK, WebView2 Runtime, country-level region, profile mode, and non-identifying account class if relevant.
-2. Select one provider and either `Fresh disposable` or `Persistent` profile mode.
-3. Start the WebView and interact with the provider manually.
-4. Record results in [Provider Compatibility Matrix](Provider_Compatibility_Matrix.md) using only the permitted evidence.
-5. End the test before choosing another provider. The harness closes the current WebView before allowing a provider or profile change.
+2. Keep the default `Fresh disposable` profile and safe mode for entry-origin and fail-closed boundary checks.
+3. If a specific Gate requires provider-default redirects, popups, permissions, or downloads, enable `Provider observation mode`, record that exception in the run, and keep the profile disposable. Observation mode cannot start with `Persistent` selected.
+4. Start the WebView and interact with the provider manually.
+5. Record results in [Provider Compatibility Matrix](Provider_Compatibility_Matrix.md) using only the permitted evidence.
+6. End the test before choosing another provider. The harness closes the current WebView before allowing a provider or profile change and attempts to remove the generated disposable profile.
 
 ## Gate A — authentication feasibility
 

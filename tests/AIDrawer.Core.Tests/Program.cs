@@ -89,6 +89,29 @@ Check("hard limit returns no victim when every inactive workspace has a protecte
     Equal(0, policy.SelectForDisposal(states, now, true).Count);
 });
 
+Check("memory pressure releases only safe inactive workspaces and keeps protected operations", () =>
+{
+    var now = DateTimeOffset.UtcNow;
+    var policy = new WorkspaceLifecyclePolicy();
+    var states = new[]
+    {
+        new LiveWorkspaceState("failed", true, false, now, now),
+        new LiveWorkspaceState("navigation", false, false, now, now.AddMinutes(-10), true),
+        new LiveWorkspaceState("kept", false, true, now, now.AddMinutes(-9)),
+        new LiveWorkspaceState("ordinary", false, false, now, now.AddMinutes(-1))
+    };
+
+    Equal(
+        "ordinary,kept",
+        string.Join(',', policy.SelectForMemoryPressure(states, "failed")));
+});
+
+Check("memory pressure rejects an empty failed workspace id", () =>
+{
+    Throws<ArgumentException>(() =>
+        _ = new WorkspaceLifecyclePolicy().SelectForMemoryPressure([], " "));
+});
+
 Check("negative grace period is rejected", () =>
 {
     Throws<ArgumentOutOfRangeException>(() =>
@@ -99,14 +122,15 @@ Check("support reminder never appears during the first seven days", () =>
 {
     var now = DateTimeOffset.UtcNow;
     var policy = new SupportReminderPolicy(currentMajorRelease: 1);
-    False(policy.IsEligible(now, now.AddDays(-6), 20, false, null, 0));
+    False(policy.IsEligible(now, now.AddDays(-6), 7, false, null, 0));
 });
 
-Check("support reminder becomes eligible after twenty opens and seven days", () =>
+Check("support reminder becomes eligible after seven opens and seven days", () =>
 {
     var now = DateTimeOffset.UtcNow;
     var policy = new SupportReminderPolicy(currentMajorRelease: 1);
-    True(policy.IsEligible(now, now.AddDays(-7), 20, false, null, 0));
+    False(policy.IsEligible(now, now.AddDays(-7), 6, false, null, 0));
+    True(policy.IsEligible(now, now.AddDays(-7), 7, false, null, 0));
 });
 
 Check("support reminder becomes eligible after fourteen days", () =>
@@ -120,15 +144,15 @@ Check("support reminder rejects missing or future first-use dates", () =>
 {
     var now = DateTimeOffset.UtcNow;
     var policy = new SupportReminderPolicy(currentMajorRelease: 1);
-    False(policy.IsEligible(now, null, 20, false, null, 0));
-    False(policy.IsEligible(now, now.AddDays(1), 20, false, null, 0));
+    False(policy.IsEligible(now, null, 7, false, null, 0));
+    False(policy.IsEligible(now, now.AddDays(1), 7, false, null, 0));
 });
 
 Check("support reminder permanent dismissal wins over eligibility", () =>
 {
     var now = DateTimeOffset.UtcNow;
     var policy = new SupportReminderPolicy(currentMajorRelease: 1);
-    False(policy.IsEligible(now, now.AddDays(-30), 20, true, null, 0));
+    False(policy.IsEligible(now, now.AddDays(-30), 7, true, null, 0));
 });
 
 Check("support reminder snooze requires both ninety days and a later major release", () =>
@@ -140,19 +164,19 @@ Check("support reminder snooze requires both ninety days and a later major relea
 
     Equal(now.AddDays(90), snooze.UntilUtc);
     Equal(2, snooze.UntilMajorRelease);
-    False(policy.IsEligible(now.AddDays(91), firstUsed, 20, false, snooze.UntilUtc, snooze.UntilMajorRelease));
+    False(policy.IsEligible(now.AddDays(91), firstUsed, 7, false, snooze.UntilUtc, snooze.UntilMajorRelease));
 
     var nextMajorPolicy = new SupportReminderPolicy(currentMajorRelease: 2);
-    False(nextMajorPolicy.IsEligible(now.AddDays(89), firstUsed, 20, false, snooze.UntilUtc, snooze.UntilMajorRelease));
-    True(nextMajorPolicy.IsEligible(now.AddDays(91), firstUsed, 20, false, snooze.UntilUtc, snooze.UntilMajorRelease));
+    False(nextMajorPolicy.IsEligible(now.AddDays(89), firstUsed, 7, false, snooze.UntilUtc, snooze.UntilMajorRelease));
+    True(nextMajorPolicy.IsEligible(now.AddDays(91), firstUsed, 7, false, snooze.UntilUtc, snooze.UntilMajorRelease));
 });
 
 Check("legacy support snooze without a major release still honors its date", () =>
 {
     var now = DateTimeOffset.UtcNow;
     var policy = new SupportReminderPolicy(currentMajorRelease: 1);
-    False(policy.IsEligible(now, now.AddDays(-30), 20, false, now.AddDays(1), 0));
-    True(policy.IsEligible(now.AddDays(2), now.AddDays(-30), 20, false, now.AddDays(1), 0));
+    False(policy.IsEligible(now, now.AddDays(-30), 7, false, now.AddDays(1), 0));
+    True(policy.IsEligible(now.AddDays(2), now.AddDays(-30), 7, false, now.AddDays(1), 0));
 });
 
 Check("support reminder policy rejects an invalid major release", () =>
@@ -222,6 +246,13 @@ Check("download policy removes path traversal and invalid characters", () =>
 {
     Equal("unsafe_name_.txt", DownloadPolicy.SanitizeFileName("..\\unsafe:name?.txt"));
     Equal("download", DownloadPolicy.SanitizeFileName("..."));
+});
+
+Check("download policy removes control and bidirectional formatting characters", () =>
+{
+    Equal("invoice_cod.exe", DownloadPolicy.SanitizeFileName("invoice\u202Ecod.exe"));
+    Equal("report_pdf_.txt", DownloadPolicy.SanitizeFileName("report\u2066pdf\u2069.txt"));
+    Equal("line_break.txt", DownloadPolicy.SanitizeFileName("line\u0085break.txt"));
 });
 
 Check("download policy protects Windows device names", () =>
@@ -332,6 +363,12 @@ Check("WebView recovery policy preserves browser and memory boundaries", () =>
     Equal(
         new WebViewRecoveryDecision(WebViewRecoveryAction.ReleaseInactiveWorkspaces, true),
         WebViewRecoveryPolicy.Decide(WebViewFailureKind.OutOfMemory, 0, 0));
+    Equal(
+        new WebViewRecoveryDecision(WebViewRecoveryAction.WaitForRenderer, false),
+        WebViewRecoveryPolicy.Decide(WebViewFailureKind.FrameRendererExited, 0, 0));
+    Equal(
+        new WebViewRecoveryDecision(WebViewRecoveryAction.WaitForRenderer, false),
+        WebViewRecoveryPolicy.Decide(WebViewFailureKind.GpuOrUtilityExited, 0, 0));
 });
 
 Check("WebView recovery policy rejects negative counters", () =>

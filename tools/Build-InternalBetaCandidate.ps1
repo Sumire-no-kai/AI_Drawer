@@ -97,6 +97,14 @@ try {
             throw 'The internal candidate unexpectedly contains an MSIX signature.'
         }
 
+        $sensitiveArchiveEntries = @(
+            $archive.Entries |
+                Where-Object { [System.IO.Path]::GetExtension($_.FullName) -in '.pfx', '.p12', '.key', '.pem' }
+        )
+        if ($sensitiveArchiveEntries.Count -gt 0) {
+            throw 'Signing material or a private-key file was found inside the generated MSIX.'
+        }
+
         $manifestEntry = $archive.Entries | Where-Object FullName -EQ 'AppxManifest.xml'
         if ($null -eq $manifestEntry) {
             throw 'The generated MSIX does not contain AppxManifest.xml.'

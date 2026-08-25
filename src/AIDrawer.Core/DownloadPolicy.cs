@@ -49,7 +49,7 @@ public static class DownloadPolicy
         }
 
         var characters = source
-            .Select(character => character < ' ' || InvalidFileNameCharacters.Contains(character) ? '_' : character)
+            .Select(character => IsUnsafeFileNameCharacter(character) ? '_' : character)
             .ToArray();
         var sanitized = new string(characters).Trim().TrimEnd('.', ' ');
         if (sanitized.Length == 0)
@@ -74,6 +74,13 @@ public static class DownloadPolicy
         var baseName = Path.GetFileNameWithoutExtension(sanitized);
         return ReservedWindowsNames.Contains(baseName) ? $"_{sanitized}" : sanitized;
     }
+
+    private static bool IsUnsafeFileNameCharacter(char character) =>
+        char.IsControl(character)
+        || InvalidFileNameCharacters.Contains(character)
+        || character is '\u061C' or '\u200E' or '\u200F'
+        || character is >= '\u202A' and <= '\u202E'
+        || character is >= '\u2066' and <= '\u206F';
 
     public static string CreateNonExistingPath(
         string directory,

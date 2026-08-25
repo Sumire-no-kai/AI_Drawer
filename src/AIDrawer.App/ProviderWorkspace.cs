@@ -615,7 +615,7 @@ internal sealed class ProviderWorkspace : IDisposable
                 _renderRecoveryAttempts);
             RaiseState(
                 $"{Provider.DisplayName} ran out of memory",
-                "AI Drawer will release inactive workspaces, but will not reload this page in a loop. Reopen it when memory pressure has eased.",
+                "AI Drawer will release eligible inactive workspaces, but will not interrupt workspaces handling a navigation, permission, download, or popup. It will not reload this page in a loop.",
                 InfoBarSeverity.Error,
                 requiresRecovery: decision.RequiresRecovery);
             ProcessFailure?.Invoke(this, new WorkspaceProcessFailureEventArgs(WorkspaceId, WorkspaceProcessFailureKind.OutOfMemory));
@@ -638,7 +638,8 @@ internal sealed class ProviderWorkspace : IDisposable
                         ? "AI Drawer is keeping the workspace open so the provider can recover. Reload or restart only if it does not resume."
                         : "The provider did not recover after waiting. Reload or restart this workspace; its local profile is preserved.",
                     InfoBarSeverity.Warning,
-                    requiresRecovery: unresponsiveDecision.RequiresRecovery);
+                    requiresRecovery: unresponsiveDecision.RequiresRecovery,
+                    canKeepWaiting: unresponsiveDecision.RequiresRecovery);
                 return;
 
             case CoreWebView2ProcessFailedKind.RenderProcessExited:
@@ -812,6 +813,7 @@ internal sealed class ProviderWorkspace : IDisposable
         string message,
         InfoBarSeverity severity,
         bool requiresRecovery = false,
+        bool canKeepWaiting = false,
         WorkspaceActivity activity = WorkspaceActivity.None)
     {
         if (_disposed)
@@ -825,6 +827,7 @@ internal sealed class ProviderWorkspace : IDisposable
             message,
             severity,
             requiresRecovery,
+            canKeepWaiting,
             activity);
         StateChanged?.Invoke(this, _lastState);
     }
@@ -1014,6 +1017,7 @@ internal sealed class WorkspaceStateChangedEventArgs(
     string message,
     InfoBarSeverity severity,
     bool requiresRecovery = false,
+    bool canKeepWaiting = false,
     WorkspaceActivity activity = WorkspaceActivity.None) : EventArgs
 {
     internal string WorkspaceId { get; } = workspaceId;
@@ -1021,6 +1025,7 @@ internal sealed class WorkspaceStateChangedEventArgs(
     internal string Message { get; } = message;
     internal InfoBarSeverity Severity { get; } = severity;
     internal bool RequiresRecovery { get; } = requiresRecovery;
+    internal bool CanKeepWaiting { get; } = canKeepWaiting;
     internal WorkspaceActivity Activity { get; } = activity;
 }
 

@@ -44,4 +44,20 @@ public sealed class WorkspaceLifecyclePolicy(
         var removeCount = Math.Max(0, liveWorkspaces.Count - target);
         return removable.Take(removeCount).Select(workspace => workspace.Id).ToArray();
     }
+
+    public IReadOnlyList<string> SelectForMemoryPressure(
+        IReadOnlyCollection<LiveWorkspaceState> liveWorkspaces,
+        string failedWorkspaceId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(failedWorkspaceId);
+
+        return liveWorkspaces
+            .Where(workspace => !string.Equals(workspace.Id, failedWorkspaceId, StringComparison.Ordinal))
+            .Where(workspace => !workspace.IsActive)
+            .Where(workspace => !workspace.IsOperationProtected)
+            .OrderBy(workspace => workspace.KeepActive)
+            .ThenBy(workspace => workspace.LastActivated)
+            .Select(workspace => workspace.Id)
+            .ToArray();
+    }
 }

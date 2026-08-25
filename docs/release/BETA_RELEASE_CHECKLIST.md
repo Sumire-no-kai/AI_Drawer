@@ -28,8 +28,9 @@ This checklist separates an internal package build from a publishable Public Bet
 - [ ] GitHub private vulnerability reporting or another reviewed private security channel is enabled and tested.
 - [x] Bug and provider-evidence templates reject sensitive provider/account data and distinguish provider behavior from native-shell defects.
 - [ ] A monitored support URL or email is approved for the Store listing and the native Feedback & Support destination; it must remain separate from private security reporting.
-- [x] The local BMC reminder policy is deterministic, never eligible in the first seven days, supports permanent dismissal, and requires both 90 days and a later major release after `Not now`.
-- [ ] The BMC system-browser link and reminder placement/disclosure pass focused runtime and accessibility checks without appearing over provider content.
+- [x] The local BMC reminder policy is deterministic, becomes count-eligible at seven successful workspace opens but never during the first seven days, supports permanent dismissal, and requires both 90 days and a later major release after `Not now`.
+- [x] The BMC reminder placement, disclosure, keyboard focusability, `Not now`, and `Don't ask again` behavior pass isolated UI Automation on the native Home surface without creating a provider WebView.
+- [ ] The reviewed BMC HTTPS destination opens in the system browser from both Home and Settings; this external-browser launch remains intentionally unexercised in automated checks.
 
 ## Release publication
 

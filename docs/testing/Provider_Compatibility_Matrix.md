@@ -1,5 +1,7 @@
 # Provider Compatibility Matrix
 
+> Historical run note: evidence recorded before the 2026-08-25 Compatibility Lab safe-mode hardening used the Lab's earlier provider-default WebView behavior. It remains historical evidence for that exact revision and environment; it does not establish that the current safe or observation mode has passed the same Gate.
+
 > Status: work in progress. This matrix contains manual test evidence only. `Not tested` and `Experimental` are not support claims.
 
 ## Environment records

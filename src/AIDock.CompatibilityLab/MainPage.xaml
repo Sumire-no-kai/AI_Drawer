@@ -22,9 +22,13 @@
             IsOpen="True"
             Severity="Informational"
             Title="Manual provider compatibility test"
-            Message="This harness never reads the page DOM and never records credentials, cookies, tokens, prompts, responses, or full URLs." />
+            Message="Safe mode blocks unreviewed redirects, popups, permissions, downloads, and certificate errors. Provider observation mode is an explicit fresh-profile exception. This harness never reads page content or records sensitive data or full URLs." />
 
         <Grid Grid.Row="1" ColumnSpacing="8">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
@@ -50,7 +54,7 @@
                 x:Name="ProfileModeBox"
                 Grid.Column="2"
                 Header="Profile"
-                SelectedIndex="0">
+                SelectedIndex="1">
                 <ComboBoxItem Content="Persistent" Tag="persistent" />
                 <ComboBoxItem Content="Fresh disposable" Tag="fresh" />
             </ComboBox>
@@ -80,6 +84,13 @@
                 VerticalAlignment="Bottom"
                 Click="BrowserButton_Click"
                 Content="Open in browser" />
+            <CheckBox
+                x:Name="ObservationModeBox"
+                Grid.Row="1"
+                Grid.ColumnSpan="7"
+                Margin="0,8,0,0"
+                Content="Provider observation mode — allow provider-default HTTPS redirects, popups, permission prompts, and downloads for this fresh disposable profile"
+                AutomationProperties.Name="Provider observation mode" />
         </Grid>
 
         <Border
@@ -114,6 +125,7 @@
                 <TextBlock FontSize="12" Text="No URLs, page content, credentials, cookies, tokens, or payment information are recorded. Release builds keep this view empty." TextWrapping="Wrap" />
                 <TextBlock x:Name="ProviderStatusText" Text="Provider: not selected" TextWrapping="Wrap" />
                 <TextBlock x:Name="PurchasePolicyText" Text="Purchase policy: not selected" TextWrapping="Wrap" />
+                <TextBlock x:Name="CurrentOriginText" Text="Current origin: not started" TextWrapping="Wrap" />
                 <TextBlock x:Name="ProfilePathText" Text="Profile: not started" TextWrapping="Wrap" />
                 <TextBlock x:Name="ResourceText" Text="WebView processes: —&#x0a;Private memory: —&#x0a;CPU: —" />
                 <Button Click="ClearLogButton_Click" Content="Clear event view" />

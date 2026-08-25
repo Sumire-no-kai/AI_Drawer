@@ -54,6 +54,20 @@
                     <SolidColorBrush x:Key="StatusErrorBrush" Color="#3C1F23" />
                     <Color x:Key="HomeGlowColor">#4A527FFF</Color>
                 </ResourceDictionary>
+                <ResourceDictionary x:Key="HighContrast">
+                    <StaticResource x:Key="WorkspaceTabActiveBrush" ResourceKey="AccentFillColorDefaultBrush" />
+                    <StaticResource x:Key="HomeChooserSurfaceBrush" ResourceKey="SolidBackgroundFillColorBaseBrush" />
+                    <StaticResource x:Key="ProviderChoiceBackgroundPointerOverBrush" ResourceKey="ControlFillColorSecondaryBrush" />
+                    <StaticResource x:Key="ProviderChoiceBackgroundPressedBrush" ResourceKey="ControlFillColorTertiaryBrush" />
+                    <StaticResource x:Key="ProviderChoiceBorderPointerOverBrush" ResourceKey="ControlStrokeColorDefaultBrush" />
+                    <StaticResource x:Key="ProviderChoiceBorderPressedBrush" ResourceKey="ControlStrongStrokeColorDefaultBrush" />
+                    <StaticResource x:Key="PromptSurfaceBrush" ResourceKey="SolidBackgroundFillColorBaseBrush" />
+                    <StaticResource x:Key="PromptScrimBrush" ResourceKey="SmokeFillColorDefaultBrush" />
+                    <StaticResource x:Key="StatusInfoBrush" ResourceKey="SystemFillColorNeutralBackgroundBrush" />
+                    <StaticResource x:Key="StatusWarningBrush" ResourceKey="SystemFillColorCautionBackgroundBrush" />
+                    <StaticResource x:Key="StatusErrorBrush" ResourceKey="SystemFillColorCriticalBackgroundBrush" />
+                    <Color x:Key="HomeGlowColor">Transparent</Color>
+                </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
 
             <ThemeShadow x:Key="FloatingSurfaceShadow" />
@@ -388,7 +402,11 @@
 
             <Grid x:Name="WebViewHost" Visibility="Collapsed" />
 
-            <Grid x:Name="RecoveryPanel" Background="{ThemeResource SolidBackgroundFillColorBaseBrush}" Visibility="Collapsed">
+            <Grid
+                x:Name="RecoveryPanel"
+                Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
+                TabFocusNavigation="Cycle"
+                Visibility="Collapsed">
                 <StackPanel
                     Width="340"
                     HorizontalAlignment="Center"
@@ -402,6 +420,12 @@
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <Button Style="{StaticResource AppPrimaryButtonStyle}" Content="Reload" Click="ReloadButton_Click" />
                         <Button Style="{StaticResource AppSecondaryButtonStyle}" Content="Restart workspace" Click="RestartButton_Click" />
+                        <Button
+                            x:Name="RecoveryKeepWaitingButton"
+                            Style="{StaticResource AppSecondaryButtonStyle}"
+                            Content="Keep waiting"
+                            Click="RecoveryKeepWaitingButton_Click"
+                            Visibility="Collapsed" />
                     </StackPanel>
                 </StackPanel>
             </Grid>
@@ -453,6 +477,7 @@
             Grid.RowSpan="3"
             Canvas.ZIndex="110"
             Background="{ThemeResource PromptScrimBrush}"
+            TabFocusNavigation="Cycle"
             Visibility="Collapsed">
             <Border
                 Width="460"
@@ -502,6 +527,7 @@
             Grid.RowSpan="3"
             Canvas.ZIndex="100"
             Background="{ThemeResource PromptScrimBrush}"
+            TabFocusNavigation="Cycle"
             Visibility="Collapsed">
             <!-- Do not independently translate PromptCard. On high-DPI displays, this can
                  desynchronize its rendered and pointer-hit positions. -->
@@ -546,6 +572,7 @@
             Grid.RowSpan="3"
             Canvas.ZIndex="90"
             Background="{ThemeResource PromptScrimBrush}"
+            TabFocusNavigation="Cycle"
             Visibility="Collapsed">
             <Border
                 Width="660"

@@ -363,8 +363,152 @@ try
         return Task.CompletedTask;
     });
 
+    await CheckAsync("native overlays and support surfaces preserve accessibility boundaries", () =>
+    {
+        var document = XDocument.Load(GetRepositoryPath("src", "AIDrawer.App", "MainPage.xaml"));
+        XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var rootThemeDictionaries = document
+            .Descendants()
+            .First(element => string.Equals(element.Name.LocalName, "ResourceDictionary.ThemeDictionaries", StringComparison.Ordinal));
+        True(rootThemeDictionaries
+            .Elements()
+            .Any(element => string.Equals(element.Attribute(xaml + "Key")?.Value, "HighContrast", StringComparison.Ordinal)));
+
+        foreach (var overlayName in new[] { "RecoveryPanel", "SessionRecoveryOverlay", "PromptOverlay", "SettingsOverlay" })
+        {
+            var overlay = document
+                .Descendants()
+                .Single(element => string.Equals(element.Attribute(xaml + "Name")?.Value, overlayName, StringComparison.Ordinal));
+            Equal("Cycle", overlay.Attribute("TabFocusNavigation")?.Value);
+        }
+
+        var keepWaiting = document
+            .Descendants()
+            .Single(element => string.Equals(element.Attribute(xaml + "Name")?.Value, "RecoveryKeepWaitingButton", StringComparison.Ordinal));
+        Equal("Keep waiting", keepWaiting.Attribute("Content")?.Value);
+        Equal("RecoveryKeepWaitingButton_Click", keepWaiting.Attribute("Click")?.Value);
+
+        var settings = document
+            .Descendants()
+            .Single(element => string.Equals(element.Attribute(xaml + "Name")?.Value, "SettingsOverlay", StringComparison.Ordinal));
+        True(settings
+            .Descendants()
+            .Any(element => string.Equals(element.Attribute(xaml + "Name")?.Value, "SupportDevelopmentButton", StringComparison.Ordinal)));
+        return Task.CompletedTask;
+    });
+
+    await CheckAsync("compatibility lab defaults to a disposable fail-closed observation boundary", () =>
+    {
+        var document = XDocument.Load(GetRepositoryPath("src", "AIDock.CompatibilityLab", "MainPage.xaml"));
+        XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var profileMode = document
+            .Descendants()
+            .Single(element => string.Equals(element.Attribute(xaml + "Name")?.Value, "ProfileModeBox", StringComparison.Ordinal));
+        Equal("1", profileMode.Attribute("SelectedIndex")?.Value);
+        var observationMode = document
+            .Descendants()
+            .Single(element => string.Equals(element.Attribute(xaml + "Name")?.Value, "ObservationModeBox", StringComparison.Ordinal));
+        Equal("Provider observation mode", observationMode.Attribute("AutomationProperties.Name")?.Value);
+
+        var code = File.ReadAllText(GetRepositoryPath("src", "AIDock.CompatibilityLab", "MainPage.xaml.cs"));
+        True(code.Contains("CoreWebView2ServerCertificateErrorAction.Cancel", StringComparison.Ordinal));
+        True(code.Contains("args.State = CoreWebView2PermissionState.Deny", StringComparison.Ordinal));
+        True(code.Contains("args.Cancel = true;", StringComparison.Ordinal));
+        True(code.Contains("Provider observation mode requires a fresh disposable profile.", StringComparison.Ordinal));
+        return Task.CompletedTask;
+    });
+
     if (runUiChecks)
     {
+        await CheckAsync("support reminder appears at seven eligible opens and persists both dismissal choices", async () =>
+        {
+            await DeleteDirectoryWhenReleasedAsync(appDataRoot);
+            await WorkspaceSessionStore.SaveSettingsAsync(new AppSettings(
+                OnboardingVersion: 2,
+                FirstUsedUtc: DateTimeOffset.UtcNow.AddDays(-8),
+                SuccessfulOpenCount: SupportReminderPolicy.SuccessfulOpenThreshold,
+                GlobalShortcut: new GlobalShortcutSettings(Enabled: false),
+                CloseToTray: false));
+            await WorkspaceSessionStore.FlushWritesAsync();
+
+            var appPath = GetAppPath();
+            True(File.Exists(appPath));
+            using (var process = StartTestApp(appPath, testRoot))
+            {
+                try
+                {
+                    var root = await WaitForMainWindowAsync(process, "support reminder window");
+                    var title = await WaitForVisibleElementAsync(root, "Support independent development", "support reminder");
+                    var notNow = FindByName(root, "Not now")
+                        ?? throw new InvalidOperationException("The support reminder's Not now action was not found.");
+                    var never = FindByName(root, "Don't ask again")
+                        ?? throw new InvalidOperationException("The support reminder's permanent dismissal was not found.");
+                    if (title.Current.BoundingRectangle.Width <= 0)
+                    {
+                        throw new InvalidOperationException("The visible support reminder had no UI Automation bounds.");
+                    }
+
+                    if (!notNow.Current.IsKeyboardFocusable || !never.Current.IsKeyboardFocusable)
+                    {
+                        throw new InvalidOperationException(
+                            $"Support dismissal actions were not both keyboard-focusable "
+                            + $"(Not now={notNow.Current.IsKeyboardFocusable}, Don't ask again={never.Current.IsKeyboardFocusable}).");
+                    }
+
+                    if (Directory.Exists(Path.Combine(appDataRoot, "WebView2")))
+                    {
+                        throw new InvalidOperationException("The Home-only support reminder unexpectedly created a WebView2 profile.");
+                    }
+
+                    ((InvokePattern)notNow.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+                    await WaitUntilAsync(
+                        () => TryReadSettings(settingsPath) is
+                        {
+                            SupportReminderSnoozedUntilUtc: { } untilUtc,
+                            SupportReminderSnoozedUntilMajorRelease: 2
+                        }
+                        && untilUtc >= DateTimeOffset.UtcNow.AddDays(89)
+                        && FindByName(root, "Support independent development") is null,
+                        TimeSpan.FromSeconds(20),
+                        "support reminder snooze persistence and dismissal");
+                }
+                finally
+                {
+                    await StopTestAppAsync(process, appPath);
+                }
+            }
+
+            await DeleteDirectoryWhenReleasedAsync(appDataRoot);
+            await WorkspaceSessionStore.SaveSettingsAsync(new AppSettings(
+                OnboardingVersion: 2,
+                FirstUsedUtc: DateTimeOffset.UtcNow.AddDays(-8),
+                SuccessfulOpenCount: SupportReminderPolicy.SuccessfulOpenThreshold,
+                GlobalShortcut: new GlobalShortcutSettings(Enabled: false),
+                CloseToTray: false));
+            await WorkspaceSessionStore.FlushWritesAsync();
+
+            using (var process = StartTestApp(appPath, testRoot))
+            {
+                try
+                {
+                    var root = await WaitForMainWindowAsync(process, "support dismissal window");
+                    _ = await WaitForVisibleElementAsync(root, "Support independent development", "support reminder");
+                    var never = FindByName(root, "Don't ask again")
+                        ?? throw new InvalidOperationException("The support reminder's permanent dismissal was not found.");
+                    ((InvokePattern)never.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+                    await WaitUntilAsync(
+                        () => TryReadSettings(settingsPath) is { SupportReminderDismissed: true }
+                            && FindByName(root, "Support independent development") is null,
+                        TimeSpan.FromSeconds(20),
+                        "permanent support reminder persistence and dismissal");
+                }
+                finally
+                {
+                    await StopTestAppAsync(process, appPath);
+                }
+            }
+        });
+
         await CheckAsync("a saved restricted locator restores its native workspace and isolated profile in a new application process", async () =>
         {
             await DeleteDirectoryWhenReleasedAsync(appDataRoot);
@@ -760,6 +904,81 @@ static async Task CompleteWelcomeAsync(AutomationElement root)
     if (FindByName(root, "Continue") is not null)
     {
         throw new InvalidOperationException("The welcome flow exceeded the supported disclosure count.");
+    }
+}
+
+static Process StartTestApp(string appPath, string testDataRoot)
+{
+    var process = new Process
+    {
+        StartInfo = new ProcessStartInfo(appPath)
+        {
+            WorkingDirectory = Path.GetDirectoryName(appPath)!,
+            UseShellExecute = false
+        }
+    };
+    process.StartInfo.Environment["AI_DRAWER_TEST_DATA_ROOT"] = testDataRoot;
+    if (!process.Start())
+    {
+        process.Dispose();
+        throw new InvalidOperationException("AI Drawer did not start.");
+    }
+
+    return process;
+}
+
+static async Task<AutomationElement> WaitForMainWindowAsync(Process process, string description)
+{
+    await WaitUntilAsync(() =>
+    {
+        process.Refresh();
+        return process.MainWindowHandle != IntPtr.Zero;
+    }, TimeSpan.FromSeconds(30), description);
+    return AutomationElement.FromHandle(process.MainWindowHandle);
+}
+
+static async Task<AutomationElement> WaitForVisibleElementAsync(
+    AutomationElement root,
+    string name,
+    string description)
+{
+    AutomationElement? element = null;
+    await WaitUntilAsync(
+        () =>
+        {
+            element = FindByName(root, name);
+            return element is not null
+                && !element.Current.IsOffscreen
+                && element.Current.BoundingRectangle.Width > 0
+                && element.Current.BoundingRectangle.Height > 0;
+        },
+        TimeSpan.FromSeconds(15),
+        description);
+    return element!;
+}
+
+static async Task StopTestAppAsync(Process process, string appPath)
+{
+    process.Refresh();
+    if (process.HasExited)
+    {
+        return;
+    }
+
+    _ = process.CloseMainWindow();
+    try
+    {
+        await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+    }
+    catch (TimeoutException)
+    {
+        process.Refresh();
+        if (!process.HasExited
+            && string.Equals(process.MainModule?.FileName, appPath, StringComparison.OrdinalIgnoreCase))
+        {
+            process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync();
+        }
     }
 }
 
