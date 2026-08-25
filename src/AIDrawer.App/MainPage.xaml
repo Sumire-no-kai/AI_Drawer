@@ -222,6 +222,13 @@
                     </Button.Flyout>
                 </Button>
                 <Button
+                    x:Name="FeedbackSupportButton"
+                    Style="{StaticResource WorkspaceActionButtonStyle}"
+                    AutomationProperties.Name="Feedback and support"
+                    Click="FeedbackSupportButton_Click">
+                    <FontIcon Glyph="&#xE939;" />
+                </Button>
+                <Button
                     Style="{StaticResource WorkspaceActionButtonStyle}"
                     AutomationProperties.Name="Settings"
                     Click="SettingsButton_Click">
@@ -408,7 +415,9 @@
                 TabFocusNavigation="Cycle"
                 Visibility="Collapsed">
                 <StackPanel
-                    Width="340"
+                    Width="420"
+                    MaxWidth="{Binding ActualWidth, ElementName=RootLayout}"
+                    Margin="24"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center"
                     Spacing="12">
@@ -417,15 +426,24 @@
                         x:Name="RecoveryMessage"
                         TextWrapping="Wrap"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Button Style="{StaticResource AppPrimaryButtonStyle}" Content="Reload" Click="ReloadButton_Click" />
-                        <Button Style="{StaticResource AppSecondaryButtonStyle}" Content="Restart workspace" Click="RestartButton_Click" />
-                        <Button
-                            x:Name="RecoveryKeepWaitingButton"
-                            Style="{StaticResource AppSecondaryButtonStyle}"
-                            Content="Keep waiting"
-                            Click="RecoveryKeepWaitingButton_Click"
-                            Visibility="Collapsed" />
+                    <StackPanel Spacing="8">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Style="{StaticResource AppPrimaryButtonStyle}" Content="Reload" Click="ReloadButton_Click" />
+                            <Button Style="{StaticResource AppSecondaryButtonStyle}" Content="Restart workspace" Click="RestartButton_Click" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button
+                                x:Name="RecoveryKeepWaitingButton"
+                                Style="{StaticResource AppSecondaryButtonStyle}"
+                                Content="Keep waiting"
+                                Click="RecoveryKeepWaitingButton_Click"
+                                Visibility="Collapsed" />
+                            <Button
+                                x:Name="RecoveryOpenBrowserButton"
+                                Style="{StaticResource AppSecondaryButtonStyle}"
+                                Content="Open in browser"
+                                Click="RecoveryOpenBrowserButton_Click" />
+                        </StackPanel>
                     </StackPanel>
                 </StackPanel>
             </Grid>
@@ -568,6 +586,138 @@
         </Grid>
 
         <Grid
+            x:Name="FeedbackSupportOverlay"
+            Grid.RowSpan="3"
+            Canvas.ZIndex="95"
+            Background="{ThemeResource PromptScrimBrush}"
+            TabFocusNavigation="Cycle"
+            Visibility="Collapsed">
+            <Border
+                Width="620"
+                MaxWidth="{Binding ActualWidth, ElementName=RootLayout}"
+                MaxHeight="{Binding ActualHeight, ElementName=RootLayout}"
+                Margin="24"
+                Padding="24"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Background="{ThemeResource PromptSurfaceBrush}"
+                CornerRadius="16"
+                Shadow="{StaticResource FloatingSurfaceShadow}"
+                Translation="0,0,24">
+                <ScrollViewer>
+                    <StackPanel Spacing="18">
+                        <Grid>
+                            <StackPanel Spacing="3">
+                                <TextBlock Text="Feedback &amp; Support" FontSize="24" FontWeight="SemiBold" />
+                                <TextBlock
+                                    Text="Help improve the independent AI Drawer project without sharing provider or account data."
+                                    TextWrapping="Wrap"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            </StackPanel>
+                            <Button
+                                x:Name="FeedbackSupportCloseButton"
+                                HorizontalAlignment="Right"
+                                Style="{StaticResource AppIconButtonStyle}"
+                                AutomationProperties.Name="Close feedback and support"
+                                Click="CloseFeedbackSupportButton_Click">
+                                <FontIcon Glyph="&#xE711;" />
+                            </Button>
+                        </Grid>
+
+                        <Border
+                            Padding="14"
+                            Background="{ThemeResource StatusWarningBrush}"
+                            CornerRadius="10">
+                            <StackPanel Spacing="4">
+                                <TextBlock Text="Keep reports privacy-safe" FontWeight="SemiBold" />
+                                <TextBlock
+                                    Text="Never include prompts, responses, page content, full sensitive URLs, account identifiers, credentials, cookies, tokens, payment data, DOM captures, or network traces."
+                                    TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Public feedback" FontSize="16" FontWeight="SemiBold" />
+                            <Button
+                                x:Name="ReportBugButton"
+                                Style="{StaticResource AppSecondaryButtonStyle}"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch"
+                                AutomationProperties.Name="Report an AI Drawer bug"
+                                AutomationProperties.HelpText="Opens the privacy-safe AI Drawer bug template in the system browser. Public reports must not contain sensitive provider or account data."
+                                Click="ReportBugButton_Click">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <FontIcon Glyph="&#xEBE8;" FontSize="18" />
+                                    <StackPanel Grid.Column="1" Spacing="2">
+                                        <TextBlock Text="Report an AI Drawer bug" FontWeight="SemiBold" />
+                                        <TextBlock Text="Public GitHub issue · native shell, recovery, navigation, download, or packaging" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                </Grid>
+                            </Button>
+                            <Button
+                                x:Name="ReportProviderEvidenceButton"
+                                Style="{StaticResource AppSecondaryButtonStyle}"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch"
+                                AutomationProperties.Name="Report provider compatibility"
+                                AutomationProperties.HelpText="Opens the bounded provider-compatibility evidence template in the system browser."
+                                Click="ReportProviderEvidenceButton_Click">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <FontIcon Glyph="&#xE8F2;" FontSize="18" />
+                                    <StackPanel Grid.Column="1" Spacing="2">
+                                        <TextBlock Text="Report provider compatibility" FontWeight="SemiBold" />
+                                        <TextBlock Text="Public GitHub evidence · records environment and limits without account content" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                </Grid>
+                            </Button>
+                        </StackPanel>
+
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="Security" FontSize="16" FontWeight="SemiBold" />
+                            <Button
+                                x:Name="ReportSecurityButton"
+                                Style="{StaticResource AppSecondaryButtonStyle}"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Stretch"
+                                AutomationProperties.Name="Report a security issue privately"
+                                AutomationProperties.HelpText="Opens GitHub Private Vulnerability Reporting in the system browser. The report is not a public issue."
+                                Click="ReportSecurityButton_Click">
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <FontIcon Glyph="&#xE72E;" FontSize="18" />
+                                    <StackPanel Grid.Column="1" Spacing="2">
+                                        <TextBlock Text="Report a security issue privately" FontWeight="SemiBold" />
+                                        <TextBlock Text="Private GitHub security advisory · do not use a public issue for vulnerabilities" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                    </StackPanel>
+                                </Grid>
+                            </Button>
+                        </StackPanel>
+
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="Version &amp; build" FontSize="16" FontWeight="SemiBold" />
+                            <TextBlock
+                                x:Name="FeedbackBuildInformationText"
+                                AutomationProperties.Name="Version and build information"
+                                TextWrapping="Wrap"
+                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <Grid
             x:Name="SettingsOverlay"
             Grid.RowSpan="3"
             Canvas.ZIndex="90"
@@ -690,7 +840,7 @@
                             <Button Style="{StaticResource AppSecondaryButtonStyle}" HorizontalAlignment="Left" Content="Show privacy and product information" Click="ShowWelcomeButton_Click" />
                         </StackPanel>
                         <StackPanel Spacing="8">
-                            <TextBlock Text="Support" FontSize="16" FontWeight="SemiBold" />
+                            <TextBlock Text="Support development" FontSize="16" FontWeight="SemiBold" />
                             <Button x:Name="SupportDevelopmentButton" Style="{StaticResource AppSecondaryButtonStyle}" HorizontalAlignment="Left" Content="Support Edward Lee's independent projects" Click="SupportDevelopmentButton_Click" />
                             <TextBlock x:Name="SupportLinkStatusText" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         </StackPanel>

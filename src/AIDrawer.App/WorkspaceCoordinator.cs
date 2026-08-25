@@ -53,6 +53,19 @@ internal sealed class WorkspaceCoordinator : IDisposable
 
     internal ProviderWorkspace? ActiveWorkspace { get; private set; }
 
+    internal bool TryGetActiveBrowserRecoveryUri(string expectedWorkspaceId, out Uri recoveryUri)
+    {
+        if (ActiveWorkspace is { } workspace
+            && string.Equals(workspace.WorkspaceId, expectedWorkspaceId, StringComparison.Ordinal))
+        {
+            recoveryUri = workspace.BrowserRecoveryUri;
+            return true;
+        }
+
+        recoveryUri = null!;
+        return false;
+    }
+
     internal bool TryPromoteCommittedRestoreLocator(string workspaceId, out Uri? restoreLocator)
     {
         if (_workspaces.TryGetValue(workspaceId, out var workspace))

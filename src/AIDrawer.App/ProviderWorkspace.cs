@@ -80,6 +80,9 @@ internal sealed class ProviderWorkspace : IDisposable
         || _activeDownloads.Count > 0
         || _popupWindows.Count > 0;
 
+    internal Uri BrowserRecoveryUri =>
+        _inMemoryNavigationTarget ?? _restoreLocator ?? Provider.HomeUri;
+
     internal Uri? PromoteCommittedRestoreLocator()
     {
         _restoreLocator = Provider.CreateRestoreLocator(_inMemoryNavigationTarget?.AbsoluteUri);

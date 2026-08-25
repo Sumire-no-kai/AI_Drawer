@@ -25,16 +25,17 @@ This checklist separates an internal package build from a publishable Public Bet
 
 - [ ] The independent website is deployed from its own repository and release lifecycle with `/`, `/download`, `/providers`, `/privacy`, `/security`, `/changelog`, and `/support` routes.
 - [ ] Privacy, security, provider-status, independence, unofficial-product, WebView2 session-data, and purchase-boundary disclosures agree across the app, website, README, and release notes.
-- [ ] GitHub private vulnerability reporting or another reviewed private security channel is enabled and tested.
+- [x] GitHub private vulnerability reporting is enabled, linked from the repository security policy and native Feedback & Support surface, and kept separate from public issue templates.
 - [x] Bug and provider-evidence templates reject sensitive provider/account data and distinguish provider behavior from native-shell defects.
 - [ ] A monitored support URL or email is approved for the Store listing and the native Feedback & Support destination; it must remain separate from private security reporting.
+- [x] The native Feedback & Support surface exposes privacy-safe public bug/provider-evidence routes, build information, and the distinct private security-reporting route without creating a provider WebView.
 - [x] The local BMC reminder policy is deterministic, becomes count-eligible at seven successful workspace opens but never during the first seven days, supports permanent dismissal, and requires both 90 days and a later major release after `Not now`.
 - [x] The BMC reminder placement, disclosure, keyboard focusability, `Not now`, and `Don't ask again` behavior pass isolated UI Automation on the native Home surface without creating a provider WebView.
 - [ ] The reviewed BMC HTTPS destination opens in the system browser from both Home and Settings; this external-browser launch remains intentionally unexercised in automated checks.
 
 ## Release publication
 
-- [ ] CI passes from a clean checkout with the pinned SDK.
+- [x] CI passes from a clean checkout with the pinned SDK on the reviewed merged `master` commit.
 - [x] The internal unsigned-candidate tool verifies its package architecture, disabled startup-task declaration, reviewed capability set, unsigned state, private-key absence, and SHA-256 metadata.
 - [ ] The signed candidate is tested as the exact bytes intended for publication.
 - [ ] Release notes list verified changes, known limitations, supported environments, checksum, and rollback guidance.

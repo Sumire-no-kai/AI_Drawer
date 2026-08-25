@@ -2,6 +2,18 @@
 
 This is the durable development record for implementation decisions, verified behavior, limitations, and open work. It is not a release changelog. Planned behavior must not be presented as shipped or provider-compatible behavior.
 
+## 2026-08-25 — Recovery browser fallback and native feedback surface
+
+### Implemented behavior
+
+- Added the missing recovery-ladder action that lets the user explicitly open the active provider page in the system browser. The destination is limited to the last reviewed provider application origin and path, falls back to the provider home page, removes query parameters and fragments, and requires native confirmation. AI Drawer does not transfer browser sign-in state or expose a general address bar.
+- Added a top-level native **Feedback & Support** surface, separate from Settings and the optional Buy Me a Coffee controls. It provides privacy-safe public bug and provider-evidence templates, build information, and a distinct GitHub Private Vulnerability Reporting route. The surface repeats the prohibition on prompts, responses, page content, sensitive URLs, account identifiers, credentials, cookies, tokens, payment data, DOM captures, and network traces.
+- Added a repository security policy and enabled GitHub Private Vulnerability Reporting. No placeholder support email was invented; the independent website's final support destination remains a release decision.
+
+### Verification boundary
+
+- Structural policy checks cover the recovery action, overlay focus cycle, required feedback routes, privacy warning, and query/fragment-free browser recovery URI. Isolated UI Automation opens and closes Feedback & Support, verifies keyboard-focusable public/private report actions and build information, and confirms that the native surface creates no provider WebView. External browser launch itself remains intentionally outside automated checks.
+
 ## 2026-08-25 — M4 evidence closeout, security remediation, and support reminder
 
 ### Implemented and reviewed

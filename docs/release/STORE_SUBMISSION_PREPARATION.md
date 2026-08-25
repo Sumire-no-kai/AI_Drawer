@@ -13,4 +13,4 @@ AI Drawer should provide all of the following before its first Store submission:
 
 Add **Feedback & Support** as a top-level native destination beside **Settings** and **About & Privacy**, rather than burying it in About. It should show a normal support route, a privacy-safe bug-report route, version/build information, and a separate security-reporting link once the private channel is live. It must not encourage users to include prompts, responses, page content, credentials, cookies, tokens, payment data, or full sensitive URLs.
 
-No placeholder email address is embedded in the pre-alpha app. The final email/domain and the private security channel require owner approval and operational monitoring before implementation.
+The pre-alpha app now uses the official repository's privacy-safe public issue templates for bugs and provider evidence, and GitHub Private Vulnerability Reporting for security issues. No placeholder email address is embedded. The final website support URL or monitored support email still requires owner approval and operational monitoring before Store submission.
