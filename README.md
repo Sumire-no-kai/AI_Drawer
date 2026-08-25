@@ -179,7 +179,7 @@ Provider compatibility contributions must include reproducible environment detai
 
 1. Complete the deferred M2 restart, profile-reset, recovery, accessibility, live-view pressure, architecture, and Windows-version evidence without treating current implementation as acceptance.
 2. Complete the remaining M3 provider-specific navigation, popup, purchase-boundary, download, and focused runtime security evidence; the native policy implementation is present but these Gates are not inferred from compilation.
-3. Resolve the M4 public product identity/version scheme, MSIX dependency model, signing path, and private vulnerability-reporting channel.
+3. Resolve the M4 public product identity/version scheme, MSIX dependency model, and signing path.
 4. Build and deploy the required independent static website from its own repository and release lifecycle.
 5. Test the exact signed Beta bytes across the approved matrix, then publish a tagged GitHub prerelease with checksums, limitations, and rollback guidance.
 
