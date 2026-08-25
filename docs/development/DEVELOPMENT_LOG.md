@@ -2,6 +2,23 @@
 
 This is the durable development record for implementation decisions, verified behavior, limitations, and open work. It is not a release changelog. Planned behavior must not be presented as shipped or provider-compatible behavior.
 
+## 2026-08-24 — Microsoft Copilot candidate and home interaction polish
+
+### Implemented behavior
+
+- Added Microsoft Copilot Personal as the ninth Experimental provider entry with `Ctrl+9`. Only the exact reviewed personal application origins `copilot.microsoft.com` and `copilot.com` may remain embedded; HTTP, user-info, custom-port, lookalike, work/education, and unreviewed authentication origins remain outside that boundary.
+- Kept authentication domains and restart restore paths empty until observed provider-runtime evidence exists. This avoids guessing OAuth origins or persisting an unreviewed conversation route.
+- Removed every provider graphic mark, the unused provider-icon model fields, and the package asset inclusions after reviewing the current provider-owned trademark and brand terms. Copyright labels on third-party copies and downloaded site icons do not establish permission to bundle a product mark. The selector now relies on plain-text provider identification and contains no provider-brand artwork.
+- Reworked each provider choice as a typographic command row: a semibold provider name, visible compatibility state, compact keyboard shortcut keycap, and native forward affordance. Stronger theme-specific pointer-over and pressed fills remain local to the chooser, while high contrast uses system brushes and keyboard focus stays system-owned. No row state uses translation, scale, or shadow animation that could separate rendering from pointer hit testing at non-default DPI.
+- Added root-width-driven, explicitly centered two-column to single-column reflow for small windows and high display scaling. The home title can wrap without losing centered alignment, and the optional support actions stack vertically when their surface is narrow. Provider rows keep a minimum 56-DIP target, full automation names/help text, and set position metadata.
+- Derived a non-disclosing Debug single-instance key from an explicitly supplied isolated test-data root. Normal runs retain the global `AI Drawer` key; isolated UI tests no longer redirect into or activate a normal application instance.
+
+### Verification and limits
+
+- The application harness passed all 15 non-GUI checks and all 18 checks with its three generated-profile UI Automation flows enabled. Its settings flow now resizes from the supported minimum width back to the default width and verifies that every provider row remains horizontally visible and centered. The Core Release harness passed 42 checks. The application and Compatibility Lab x64 Debug builds completed with zero compiler errors; the Compatibility Lab strict build had zero warnings, while the application build still reported only the unavailable NuGet vulnerability-metadata warning from the restricted network environment.
+- A live resize probe measured the two-column provider group within 0.5 physical pixels of the 1180-pixel window center. At 760 pixels wide it reflowed to one column, remained within 0.5 pixels of center, and showed no horizontal clipping. The current 150% display also kept the wrapping title inside the supported minimum-width window; 200% display-device validation remains open.
+- No Copilot page, account, authentication, prompt, conversation, session, permission, popup, external link, purchase route, or payment flow was opened during these checks. Copilot remains `Experimental`; compatibility is not established by catalog presence or compilation.
+
 ## 2026-08-24 — M4 local quality, release-preparation, and package-contract hardening
 
 ### Implemented behavior

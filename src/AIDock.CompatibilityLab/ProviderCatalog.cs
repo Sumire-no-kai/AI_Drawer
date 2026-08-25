@@ -18,7 +18,8 @@ internal static class ProviderCatalog
         Create("qwen", "Qwen Studio (International)", "Experimental", "https://chat.qwen.ai/"),
         Create("qwen-cn", "Tongyi Qianwen / 通义千问 (China)", "Not tested candidate", "https://tongyi.aliyun.com/qianwen/"),
         Create("glm", "GLM / 智谱清言 (China)", "Experimental", "https://chatglm.cn/"),
-        Create("zai", "Z.ai (International)", "Not tested candidate", "https://chat.z.ai/")
+        Create("zai", "Z.ai (International)", "Not tested candidate", "https://chat.z.ai/"),
+        Create("copilot", "Microsoft Copilot (Personal)", "Not tested candidate", "https://copilot.microsoft.com/")
     ];
 
     private static ProviderDefinition Create(

@@ -18,7 +18,7 @@ public partial class App : Application
         _window = new MainWindow();
         if (!Program.IsStartupActivation)
         {
-            _window.Activate();
+            _window.ShowAndActivate();
         }
     }
 

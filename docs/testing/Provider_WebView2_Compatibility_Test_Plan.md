@@ -20,6 +20,7 @@ Passing a page-load test does not establish support. A provider remains `Experim
 | `qwen-cn` | Tongyi Qianwen / 通义千问 (China) | `https://tongyi.aliyun.com/qianwen/` | Not tested |
 | `glm` | GLM / 智谱清言 (China) | `https://chatglm.cn/` | Experimental |
 | `zai` | Z.ai (International) | `https://chat.z.ai/` | Not tested |
+| `copilot` | Microsoft Copilot (Personal) | `https://copilot.microsoft.com/` | Not tested candidate; product entry remains Experimental pending all runtime gates |
 
 The entry URLs are test starting points, not an allowlist or a provider-support claim. Login, payment, popup, and redirect domains must be observed manually and added only after review.
 

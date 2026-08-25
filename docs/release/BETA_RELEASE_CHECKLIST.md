@@ -10,6 +10,7 @@ This checklist separates an internal package build from a publishable Public Bet
 - [ ] M2 acceptance evidence is complete or the remaining scope is explicitly accepted as a documented Beta limitation.
 - [ ] M3 navigation, commerce, diagnostics, disclosure, and security-review findings are closed with focused runtime evidence.
 - [ ] Every advertised provider status is backed by the compatibility Gate; unverified entries remain clearly labelled.
+- [x] The provider selector bundles no provider graphic marks; any future mark requires current brand-guideline evidence and any required written authorization before entering a public artifact.
 - [ ] The measured live-WebView budget and supported Windows/architecture matrix are recorded without extrapolation.
 
 ## Identity, packaging, and signing

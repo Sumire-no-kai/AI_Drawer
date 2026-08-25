@@ -6,8 +6,6 @@ internal sealed record ProviderDefinition(
     string Id,
     string DisplayName,
     string CompatibilityStatus,
-    string? IconAssetUri,
-    string IconFallback,
     Uri HomeUri,
     IReadOnlySet<string> AppDomains,
     IReadOnlySet<string> AuthenticationDomains,
@@ -16,8 +14,6 @@ internal sealed record ProviderDefinition(
     IReadOnlyList<string> RestorePathPrefixes)
 {
     internal string ProfileName => $"provider-{Id}";
-
-    internal bool UsesMonochromeMark => Id is "chatgpt" or "grok";
 
     internal string WorkspaceLabel => Id switch
     {
