@@ -74,6 +74,36 @@ public static class DownloadPolicy
         var baseName = Path.GetFileNameWithoutExtension(sanitized);
         return ReservedWindowsNames.Contains(baseName) ? $"_{sanitized}" : sanitized;
     }
+
+    public static string CreateNonExistingPath(
+        string directory,
+        string fileName,
+        Func<string, bool> pathExists)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(directory);
+        ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
+        ArgumentNullException.ThrowIfNull(pathExists);
+
+        var safeFileName = SanitizeFileName(fileName);
+        var candidate = Path.Combine(directory, safeFileName);
+        if (!pathExists(candidate))
+        {
+            return candidate;
+        }
+
+        var stem = Path.GetFileNameWithoutExtension(safeFileName);
+        var extension = Path.GetExtension(safeFileName);
+        for (var suffix = 2; suffix <= 9999; suffix++)
+        {
+            candidate = Path.Combine(directory, $"{stem} ({suffix}){extension}");
+            if (!pathExists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return Path.Combine(directory, $"{stem}-{Guid.NewGuid():N}{extension}");
+    }
 }
 
 public sealed record DownloadAssessment(string SafeFileName, DownloadRisk Risk);

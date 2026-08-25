@@ -15,7 +15,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-and-check:
+  production-build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        architecture: [x64, x86, arm64]
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Restore production app
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $architecture = '${{ matrix.architecture }}'
+          $platform = if ($architecture -eq 'arm64') { 'ARM64' } else { $architecture }
+          dotnet restore src/AIDrawer.App/AIDrawer.App.csproj --runtime "win-$architecture" "-p:Platform=$platform"
+
+      - name: Build production app
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          $architecture = '${{ matrix.architecture }}'
+          $platform = if ($architecture -eq 'arm64') { 'ARM64' } else { $architecture }
+          dotnet build src/AIDrawer.App/AIDrawer.App.csproj --configuration Debug --runtime "win-$architecture" "-p:Platform=$platform" -p:PublishReadyToRun=false --no-restore -warnaserror
+          dotnet build src/AIDrawer.App/AIDrawer.App.csproj --configuration Release --runtime "win-$architecture" "-p:Platform=$platform" -p:PublishReadyToRun=false --no-restore -warnaserror
+
+  compatibility-and-policy-checks:
     runs-on: windows-latest
     timeout-minutes: 30
 
@@ -28,30 +62,22 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Restore maintained projects
+      - name: Restore compatibility and test projects
         shell: pwsh
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
-          dotnet restore src/AIDrawer.App/AIDrawer.App.csproj --runtime win-x64 -p:Platform=x64
           dotnet restore src/AIDock.CompatibilityLab/AIDock.CompatibilityLab.csproj --runtime win-x64 -p:Platform=x64
           dotnet restore tests/AIDrawer.App.Tests/AIDrawer.App.Tests.csproj --runtime win-x64 -p:Platform=x64
           dotnet restore tests/AIDrawer.Core.Tests/AIDrawer.Core.Tests.csproj
-
-      - name: Build production app
-        shell: pwsh
-        run: |
-          $PSNativeCommandUseErrorActionPreference = $true
-          dotnet build src/AIDrawer.App/AIDrawer.App.csproj --configuration Debug --runtime win-x64 -p:Platform=x64 --no-restore
-          dotnet build src/AIDrawer.App/AIDrawer.App.csproj --configuration Release --runtime win-x64 -p:Platform=x64 -p:PublishReadyToRun=false --no-restore
 
       - name: Build compatibility and application checks
         shell: pwsh
         run: |
           $PSNativeCommandUseErrorActionPreference = $true
-          dotnet build src/AIDock.CompatibilityLab/AIDock.CompatibilityLab.csproj --configuration Debug --runtime win-x64 -p:Platform=x64 --no-restore
-          dotnet build src/AIDock.CompatibilityLab/AIDock.CompatibilityLab.csproj --configuration Release --runtime win-x64 -p:Platform=x64 -p:PublishReadyToRun=false --no-restore
-          dotnet build tests/AIDrawer.App.Tests/AIDrawer.App.Tests.csproj --configuration Debug --runtime win-x64 -p:Platform=x64 --no-restore
-          dotnet build tests/AIDrawer.App.Tests/AIDrawer.App.Tests.csproj --configuration Release --runtime win-x64 -p:Platform=x64 -p:PublishReadyToRun=false --no-restore
+          dotnet build src/AIDock.CompatibilityLab/AIDock.CompatibilityLab.csproj --configuration Debug --runtime win-x64 -p:Platform=x64 --no-restore -warnaserror
+          dotnet build src/AIDock.CompatibilityLab/AIDock.CompatibilityLab.csproj --configuration Release --runtime win-x64 -p:Platform=x64 -p:PublishReadyToRun=false --no-restore -warnaserror
+          dotnet build tests/AIDrawer.App.Tests/AIDrawer.App.Tests.csproj --configuration Debug --runtime win-x64 -p:Platform=x64 --no-restore -warnaserror
+          dotnet build tests/AIDrawer.App.Tests/AIDrawer.App.Tests.csproj --configuration Release --runtime win-x64 -p:Platform=x64 -p:PublishReadyToRun=false --no-restore -warnaserror
 
       - name: Run privacy-safe non-GUI policy checks
         shell: pwsh
@@ -59,3 +85,25 @@ jobs:
           $PSNativeCommandUseErrorActionPreference = $true
           dotnet run --project tests/AIDrawer.Core.Tests/AIDrawer.Core.Tests.csproj --configuration Release --no-restore
           & 'tests/AIDrawer.App.Tests/bin/x64/Debug/net10.0-windows10.0.26100.0/win-x64/AIDrawer.App.Tests.exe' --no-ui
+
+  formatting:
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Verify formatting
+        shell: pwsh
+        run: |
+          $PSNativeCommandUseErrorActionPreference = $true
+          dotnet format src/AIDrawer.App/AIDrawer.App.csproj --verify-no-changes
+          dotnet format src/AIDock.CompatibilityLab/AIDock.CompatibilityLab.csproj --verify-no-changes
+          dotnet format tests/AIDrawer.App.Tests/AIDrawer.App.Tests.csproj --verify-no-changes
+          dotnet format tests/AIDrawer.Core.Tests/AIDrawer.Core.Tests.csproj --verify-no-changes

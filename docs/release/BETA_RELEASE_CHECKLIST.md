@@ -6,6 +6,7 @@ This checklist separates an internal package build from a publishable Public Bet
 
 - [x] Native MVP settings cover default provider, configurable shortcut, packaged startup preference, tray/exit behavior, always-on-top, and bounded window placement persistence.
 - [x] Native cache/reset-all scope and download filename/destination/caution policies are implemented with automated policy and settings-UI coverage.
+- [x] Native WebView security defaults, bounded recovery decisions, exact provider-home origin contracts, and off-screen window placement handling have repeatable automated coverage.
 - [ ] M2 acceptance evidence is complete or the remaining scope is explicitly accepted as a documented Beta limitation.
 - [ ] M3 navigation, commerce, diagnostics, disclosure, and security-review findings are closed with focused runtime evidence.
 - [ ] Every advertised provider status is backed by the compatibility Gate; unverified entries remain clearly labelled.
@@ -25,12 +26,14 @@ This checklist separates an internal package build from a publishable Public Bet
 - [ ] Privacy, security, provider-status, independence, unofficial-product, WebView2 session-data, and purchase-boundary disclosures agree across the app, website, README, and release notes.
 - [ ] GitHub private vulnerability reporting or another reviewed private security channel is enabled and tested.
 - [x] Bug and provider-evidence templates reject sensitive provider/account data and distinguish provider behavior from native-shell defects.
+- [ ] A monitored support URL or email is approved for the Store listing and the native Feedback & Support destination; it must remain separate from private security reporting.
 - [x] The local BMC reminder policy is deterministic, never eligible in the first seven days, supports permanent dismissal, and requires both 90 days and a later major release after `Not now`.
 - [ ] The BMC system-browser link and reminder placement/disclosure pass focused runtime and accessibility checks without appearing over provider content.
 
 ## Release publication
 
 - [ ] CI passes from a clean checkout with the pinned SDK.
+- [x] The internal unsigned-candidate tool verifies its package architecture, disabled startup-task declaration, reviewed capability set, unsigned state, private-key absence, and SHA-256 metadata.
 - [ ] The signed candidate is tested as the exact bytes intended for publication.
 - [ ] Release notes list verified changes, known limitations, supported environments, checksum, and rollback guidance.
 - [ ] A version tag points to the reviewed source commit.

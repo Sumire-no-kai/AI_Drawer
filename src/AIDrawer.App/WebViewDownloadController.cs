@@ -23,7 +23,7 @@ internal sealed class WebViewDownloadController(
             }
 
             var assessment = DownloadPolicy.Assess(Path.GetFileName(args.ResultFilePath));
-            args.ResultFilePath = CreateNonExistingPath(directory, assessment.SafeFileName);
+            args.ResultFilePath = DownloadPolicy.CreateNonExistingPath(directory, assessment.SafeFileName, PathExists);
             args.Handled = false;
             var decision = await requestDecisionAsync(new DownloadRequest(
                 workspaceId,
@@ -39,28 +39,6 @@ internal sealed class WebViewDownloadController(
             args.Cancel = true;
             return false;
         }
-    }
-
-    private static string CreateNonExistingPath(string directory, string fileName)
-    {
-        var candidate = Path.Combine(directory, fileName);
-        if (!PathExists(candidate))
-        {
-            return candidate;
-        }
-
-        var stem = Path.GetFileNameWithoutExtension(fileName);
-        var extension = Path.GetExtension(fileName);
-        for (var suffix = 2; suffix <= 9999; suffix++)
-        {
-            candidate = Path.Combine(directory, $"{stem} ({suffix}){extension}");
-            if (!PathExists(candidate))
-            {
-                return candidate;
-            }
-        }
-
-        return Path.Combine(directory, $"{stem}-{Guid.NewGuid():N}{extension}");
     }
 
     private static bool PathExists(string path) => File.Exists(path) || Directory.Exists(path);

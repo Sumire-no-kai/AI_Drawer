@@ -125,6 +125,28 @@ try {
         throw "Expected package architecture '$normalizedArchitecture', but found '$($identity.ProcessorArchitecture)'."
     }
 
+    $namespaceManager = [System.Xml.XmlNamespaceManager]::new($packageManifest.NameTable)
+    $namespaceManager.AddNamespace('foundation', 'http://schemas.microsoft.com/appx/manifest/foundation/windows10')
+    $namespaceManager.AddNamespace('uap5', 'http://schemas.microsoft.com/appx/manifest/uap/windows10/5')
+    $namespaceManager.AddNamespace('rescap', 'http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities')
+    $startupTask = $packageManifest.SelectSingleNode(
+        '/foundation:Package/foundation:Applications/foundation:Application/foundation:Extensions/uap5:Extension[@Category="windows.startupTask" and @Executable="AIDrawer.App.exe" and @EntryPoint="Windows.FullTrustApplication"]/uap5:StartupTask[@TaskId="AIDrawerStartupTask" and @Enabled="false"]',
+        $namespaceManager)
+    if ($null -eq $startupTask) {
+        throw 'The package is missing the disabled AIDrawerStartupTask declaration for the packaged executable.'
+    }
+
+    $capabilities = @($packageManifest.SelectNodes('/foundation:Package/foundation:Capabilities/*', $namespaceManager))
+    $hasExpectedCapabilities = $capabilities.Count -eq 1
+    if ($hasExpectedCapabilities) {
+        $hasExpectedCapabilities = $capabilities[0].NamespaceURI -eq 'http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities'
+        $hasExpectedCapabilities = $hasExpectedCapabilities -and $capabilities[0].LocalName -eq 'Capability'
+        $hasExpectedCapabilities = $hasExpectedCapabilities -and $capabilities[0].GetAttribute('Name') -eq 'runFullTrust'
+    }
+    if (-not $hasExpectedCapabilities) {
+        throw 'The package capabilities must contain only the reviewed runFullTrust capability.'
+    }
+
     $sensitiveFiles = @(Get-ChildItem -LiteralPath $candidateDirectory -File -Recurse | Where-Object Extension -In '.pfx', '.p12', '.key', '.pem')
     if ($sensitiveFiles.Count -gt 0) {
         throw 'Signing material or a private-key file was found in the candidate output.'
@@ -158,6 +180,8 @@ try {
             publisher = [string]$identity.Publisher
             architecture = [string]$identity.ProcessorArchitecture
             signed = $false
+            startupTaskDeclared = $true
+            capabilities = @('runFullTrust')
         }
         distribution = [ordered]@{
             publicReleaseAllowed = $false

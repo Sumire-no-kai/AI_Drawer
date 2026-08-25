@@ -1,3 +1,4 @@
+using AIDrawer.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Web.WebView2.Core;
@@ -291,11 +292,7 @@ internal sealed class ProviderWorkspace : IDisposable
 
     private void Configure(CoreWebView2 core, CoreWebView2Environment environment)
     {
-        core.Settings.AreDevToolsEnabled = false;
-        core.Settings.AreHostObjectsAllowed = false;
-        core.Settings.IsWebMessageEnabled = false;
-        core.Settings.IsPasswordAutosaveEnabled = false;
-        core.Settings.IsGeneralAutofillEnabled = false;
+        WebViewSecurityConfigurator.Apply(core.Settings);
 
         core.NavigationStarting += (sender, args) =>
         {
@@ -612,11 +609,15 @@ internal sealed class ProviderWorkspace : IDisposable
         _pendingNavigations.Clear();
         if (args.Reason == CoreWebView2ProcessFailedReason.OutOfMemory)
         {
+            var decision = WebViewRecoveryPolicy.Decide(
+                WebViewFailureKind.OutOfMemory,
+                _unresponsiveFailureCount,
+                _renderRecoveryAttempts);
             RaiseState(
                 $"{Provider.DisplayName} ran out of memory",
                 "AI Drawer will release inactive workspaces, but will not reload this page in a loop. Reopen it when memory pressure has eased.",
                 InfoBarSeverity.Error,
-                requiresRecovery: true);
+                requiresRecovery: decision.RequiresRecovery);
             ProcessFailure?.Invoke(this, new WorkspaceProcessFailureEventArgs(WorkspaceId, WorkspaceProcessFailureKind.OutOfMemory));
             return;
         }
@@ -624,6 +625,10 @@ internal sealed class ProviderWorkspace : IDisposable
         switch (args.ProcessFailedKind)
         {
             case CoreWebView2ProcessFailedKind.RenderProcessUnresponsive:
+                var unresponsiveDecision = WebViewRecoveryPolicy.Decide(
+                    WebViewFailureKind.RendererUnresponsive,
+                    _unresponsiveFailureCount,
+                    _renderRecoveryAttempts);
                 _unresponsiveFailureCount++;
                 RaiseState(
                     _unresponsiveFailureCount == 1
@@ -633,12 +638,17 @@ internal sealed class ProviderWorkspace : IDisposable
                         ? "AI Drawer is keeping the workspace open so the provider can recover. Reload or restart only if it does not resume."
                         : "The provider did not recover after waiting. Reload or restart this workspace; its local profile is preserved.",
                     InfoBarSeverity.Warning,
-                    requiresRecovery: _unresponsiveFailureCount > 1);
+                    requiresRecovery: unresponsiveDecision.RequiresRecovery);
                 return;
 
             case CoreWebView2ProcessFailedKind.RenderProcessExited:
                 _unresponsiveFailureCount = 0;
-                if (_renderRecoveryAttempts++ == 0 && Reload())
+                var rendererDecision = WebViewRecoveryPolicy.Decide(
+                    WebViewFailureKind.RendererExited,
+                    _unresponsiveFailureCount,
+                    _renderRecoveryAttempts);
+                _renderRecoveryAttempts++;
+                if (rendererDecision.Action == WebViewRecoveryAction.ReloadOnce && Reload())
                 {
                     RaiseState(
                         $"Reloading {Provider.DisplayName}",
@@ -657,37 +667,55 @@ internal sealed class ProviderWorkspace : IDisposable
                 return;
 
             case CoreWebView2ProcessFailedKind.BrowserProcessExited:
+                var browserDecision = WebViewRecoveryPolicy.Decide(
+                    WebViewFailureKind.BrowserExited,
+                    _unresponsiveFailureCount,
+                    _renderRecoveryAttempts);
                 RaiseState(
                     "Embedded browser process exited",
                     "AI Drawer will recreate affected active workspaces with their existing local provider profiles.",
                     InfoBarSeverity.Warning,
-                    activity: WorkspaceActivity.Opening);
+                    activity: browserDecision.Action == WebViewRecoveryAction.RecreateBrowserEnvironment
+                        ? WorkspaceActivity.Opening
+                        : WorkspaceActivity.None);
                 ProcessFailure?.Invoke(this, new WorkspaceProcessFailureEventArgs(WorkspaceId, WorkspaceProcessFailureKind.BrowserExit));
                 return;
 
             case CoreWebView2ProcessFailedKind.FrameRenderProcessExited:
+                var frameDecision = WebViewRecoveryPolicy.Decide(
+                    WebViewFailureKind.FrameRendererExited,
+                    _unresponsiveFailureCount,
+                    _renderRecoveryAttempts);
                 RaiseState(
                     $"{Provider.DisplayName} content frame exited",
                     "The provider may recover this frame itself. Reload only if the page does not recover.",
                     InfoBarSeverity.Warning,
-                    requiresRecovery: true);
+                    requiresRecovery: frameDecision.RequiresRecovery);
                 return;
 
             case CoreWebView2ProcessFailedKind.GpuProcessExited:
             case CoreWebView2ProcessFailedKind.UtilityProcessExited:
+                var helperDecision = WebViewRecoveryPolicy.Decide(
+                    WebViewFailureKind.GpuOrUtilityExited,
+                    _unresponsiveFailureCount,
+                    _renderRecoveryAttempts);
                 RaiseState(
                     $"{Provider.DisplayName} browser helper exited",
                     "WebView2 may recover this helper automatically. Reload or restart the workspace only if the provider page remains unusable.",
                     InfoBarSeverity.Warning,
-                    requiresRecovery: true);
+                    requiresRecovery: helperDecision.RequiresRecovery);
                 return;
 
             default:
+                var fallbackDecision = WebViewRecoveryPolicy.Decide(
+                    WebViewFailureKind.Other,
+                    _unresponsiveFailureCount,
+                    _renderRecoveryAttempts);
                 RaiseState(
                     $"{Provider.DisplayName} embedded browser failed",
                     "Reload or restart this workspace. Its local profile is preserved.",
                     InfoBarSeverity.Error,
-                    requiresRecovery: true);
+                    requiresRecovery: fallbackDecision.RequiresRecovery);
                 return;
         }
     }

@@ -2,8 +2,10 @@ using AIDrawer;
 using AIDrawer.Core;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Windows.Automation;
+using System.Xml.Linq;
 
 var failures = new List<string>();
 var runUiChecks = !args.Contains("--no-ui", StringComparer.OrdinalIgnoreCase);
@@ -85,7 +87,7 @@ try
 
     await CheckAsync("a reviewed locator survives a DPAPI save and load round trip", async () =>
     {
-        Directory.Delete(appDataRoot, recursive: true);
+        await DeleteDirectoryWhenReleasedAsync(appDataRoot);
         var provider = ProviderCatalog.AvailableProviders.Single(candidate => candidate.Id == "chatgpt");
         var locator = new Uri("https://chatgpt.com/c/opaque-validation-id");
         var workspace = new WorkspaceTab(
@@ -121,7 +123,7 @@ try
 
     await CheckAsync("session persistence keeps the configured 100-workspace ceiling", async () =>
     {
-        Directory.Delete(appDataRoot, recursive: true);
+        await DeleteDirectoryWhenReleasedAsync(appDataRoot);
         var workspaces = Enumerable.Range(1, WorkspaceSession.MaximumWorkspaceCount + 1)
             .Select(number => new WorkspaceTab(number))
             .ToArray();
@@ -160,11 +162,39 @@ try
         Equal(expected.WindowPlacement, actual.WindowPlacement);
     });
 
+    await CheckAsync("provider catalog keeps a safe and data-driven contract", () =>
+    {
+        var providers = ProviderCatalog.AvailableProviders;
+        Equal(8, providers.Count);
+        Equal(providers.Count, providers.Select(provider => provider.Id).Distinct(StringComparer.OrdinalIgnoreCase).Count());
+        True(providers.All(provider => provider.HomeUri.Scheme == Uri.UriSchemeHttps));
+        True(providers.All(provider => provider.AppDomains.Contains(provider.HomeUri.IdnHost)));
+        True(providers.All(provider => provider.AppDomains.Count > 0));
+        True(providers.All(provider => provider.CompatibilityStatus is not "Verified"));
+        True(providers.All(provider => provider.ProfileName.StartsWith("provider-", StringComparison.Ordinal)));
+        return Task.CompletedTask;
+    });
+
+    await CheckAsync("prompt card avoids independent translation", () =>
+    {
+        var document = XDocument.Load(GetRepositoryPath("src", "AIDrawer.App", "MainPage.xaml"));
+        XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var promptCard = document
+            .Descendants()
+            .Single(element => string.Equals(
+                element.Attribute(xaml + "Name")?.Value,
+                "PromptCard",
+                StringComparison.Ordinal));
+
+        Null(promptCard.Attribute("Translation"));
+        return Task.CompletedTask;
+    });
+
     if (runUiChecks)
     {
         await CheckAsync("a saved restricted locator restores its native workspace and isolated profile in a new application process", async () =>
         {
-            Directory.Delete(appDataRoot, recursive: true);
+            await DeleteDirectoryWhenReleasedAsync(appDataRoot);
             var provider = ProviderCatalog.AvailableProviders.Single(candidate => candidate.Id == "chatgpt");
             var workspace = new WorkspaceTab(
                 "workspace-restore",
@@ -196,6 +226,7 @@ try
                     process.Refresh();
                     return process.MainWindowHandle != IntPtr.Zero;
                 }, TimeSpan.FromSeconds(30), "AI Drawer main window");
+                WindowSizingProbe.AssertMinimumTrackSize(process.MainWindowHandle);
 
                 var root = AutomationElement.FromHandle(process.MainWindowHandle);
                 var continueButton = FindByName(root, "Continue");
@@ -240,7 +271,7 @@ try
 
         await CheckAsync("MVP shell controls apply and persist through the settings UI", async () =>
         {
-            Directory.Delete(appDataRoot, recursive: true);
+            await DeleteDirectoryWhenReleasedAsync(appDataRoot);
             await WorkspaceSessionStore.SaveSettingsAsync(new AppSettings(
                 OnboardingVersion: 2,
                 GlobalShortcut: new GlobalShortcutSettings(Enabled: false),
@@ -345,7 +376,7 @@ try
         await CheckAsync("the recovery UI backs up a corrupt session before continuing", async () =>
         {
             const string corruptSession = "{ session is broken";
-            Directory.Delete(appDataRoot, recursive: true);
+            await DeleteDirectoryWhenReleasedAsync(appDataRoot);
             await WriteSessionAsync(corruptSession);
             var appPath = GetAppPath();
             True(File.Exists(appPath));
@@ -404,7 +435,7 @@ finally
 {
     if (Directory.Exists(testRoot))
     {
-        Directory.Delete(testRoot, recursive: true);
+        await DeleteDirectoryWhenReleasedAsync(testRoot);
     }
 }
 
@@ -541,11 +572,25 @@ static async Task CompleteWelcomeAsync(AutomationElement root)
     }
 }
 
-static string GetAppPath() => Path.GetFullPath(Path.Combine(
-    AppContext.BaseDirectory,
-    "..", "..", "..", "..", "..", "..", "..",
+static string GetAppPath() => GetRepositoryPath(
     "src", "AIDrawer.App", "bin", "x64", "Debug",
-    "net10.0-windows10.0.26100.0", "win-x64", "AIDrawer.App.exe"));
+    "net10.0-windows10.0.26100.0", "win-x64", "AIDrawer.App.exe");
+
+static string GetRepositoryPath(params string[] segments)
+{
+    for (var directory = new DirectoryInfo(AppContext.BaseDirectory);
+         directory is not null;
+         directory = directory.Parent)
+    {
+        if (File.Exists(Path.Combine(directory.FullName, "global.json")) &&
+            File.Exists(Path.Combine(directory.FullName, "src", "AIDrawer.App", "MainPage.xaml")))
+        {
+            return Path.Combine([directory.FullName, .. segments]);
+        }
+    }
+
+    throw new DirectoryNotFoundException("Could not locate the AI Drawer repository root.");
+}
 
 static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout, string description)
 {
@@ -559,4 +604,121 @@ static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout, string 
 
         await Task.Delay(100);
     }
+}
+
+static async Task DeleteDirectoryWhenReleasedAsync(string path)
+{
+    const int maximumAttempts = 50;
+    for (var attempt = 1; attempt <= maximumAttempts; attempt++)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+            {
+                Directory.Delete(path, recursive: true);
+            }
+
+            return;
+        }
+        catch (IOException) when (attempt < maximumAttempts)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(200));
+        }
+        catch (UnauthorizedAccessException) when (attempt < maximumAttempts)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(200));
+        }
+    }
+
+    throw new IOException($"Could not remove test directory after {maximumAttempts} attempts: {path}");
+}
+
+internal static class WindowSizingProbe
+{
+    private const uint WmGetMinMaxInfo = 0x0024;
+    private const uint MonitorDefaultToNearest = 0x00000002;
+
+    internal static void AssertMinimumTrackSize(IntPtr windowHandle)
+    {
+        var expectedWidth = WindowPlacementPolicy.MinimumWidth;
+        var expectedHeight = WindowPlacementPolicy.MinimumHeight;
+        var monitor = MonitorFromWindow(windowHandle, MonitorDefaultToNearest);
+        var monitorInfo = new MonitorInfo { Size = (uint)Marshal.SizeOf<MonitorInfo>() };
+        if (monitor != IntPtr.Zero && GetMonitorInfo(monitor, ref monitorInfo))
+        {
+            expectedWidth = Math.Min(expectedWidth, monitorInfo.WorkArea.Width);
+            expectedHeight = Math.Min(expectedHeight, monitorInfo.WorkArea.Height);
+        }
+
+        var pointer = Marshal.AllocHGlobal(Marshal.SizeOf<MinMaxInfo>());
+        try
+        {
+            Marshal.StructureToPtr(new MinMaxInfo(), pointer, false);
+            _ = SendMessage(windowHandle, WmGetMinMaxInfo, IntPtr.Zero, pointer);
+            var limits = Marshal.PtrToStructure<MinMaxInfo>(pointer);
+            if (limits.MinimumTrackSize.X < expectedWidth
+                || limits.MinimumTrackSize.Y < expectedHeight)
+            {
+                throw new InvalidOperationException(
+                    $"expected minimum window size {expectedWidth}x{expectedHeight}, "
+                    + $"got {limits.MinimumTrackSize.X}x{limits.MinimumTrackSize.Y}");
+            }
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(pointer);
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativePoint
+    {
+        internal int X;
+        internal int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeRect
+    {
+        internal int Left;
+        internal int Top;
+        internal int Right;
+        internal int Bottom;
+
+        internal readonly int Width => Right - Left;
+
+        internal readonly int Height => Bottom - Top;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MinMaxInfo
+    {
+        internal NativePoint Reserved;
+        internal NativePoint MaximumSize;
+        internal NativePoint MaximumPosition;
+        internal NativePoint MinimumTrackSize;
+        internal NativePoint MaximumTrackSize;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MonitorInfo
+    {
+        internal uint Size;
+        internal NativeRect MonitorArea;
+        internal NativeRect WorkArea;
+        internal uint Flags;
+    }
+
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr SendMessage(IntPtr windowHandle, uint message, IntPtr wParam, IntPtr lParam);
+
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr windowHandle, uint flags);
+
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo monitorInfo);
 }
