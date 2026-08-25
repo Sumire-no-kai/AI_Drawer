@@ -374,7 +374,14 @@ try
             .Elements()
             .Any(element => string.Equals(element.Attribute(xaml + "Key")?.Value, "HighContrast", StringComparison.Ordinal)));
 
-        foreach (var overlayName in new[] { "RecoveryPanel", "SessionRecoveryOverlay", "PromptOverlay", "SettingsOverlay" })
+        foreach (var overlayName in new[]
+        {
+            "RecoveryPanel",
+            "SessionRecoveryOverlay",
+            "PromptOverlay",
+            "FeedbackSupportOverlay",
+            "SettingsOverlay"
+        })
         {
             var overlay = document
                 .Descendants()
@@ -387,6 +394,29 @@ try
             .Single(element => string.Equals(element.Attribute(xaml + "Name")?.Value, "RecoveryKeepWaitingButton", StringComparison.Ordinal));
         Equal("Keep waiting", keepWaiting.Attribute("Content")?.Value);
         Equal("RecoveryKeepWaitingButton_Click", keepWaiting.Attribute("Click")?.Value);
+        var openRecoveryInBrowser = document
+            .Descendants()
+            .Single(element => string.Equals(element.Attribute(xaml + "Name")?.Value, "RecoveryOpenBrowserButton", StringComparison.Ordinal));
+        Equal("Open in browser", openRecoveryInBrowser.Attribute("Content")?.Value);
+        Equal("RecoveryOpenBrowserButton_Click", openRecoveryInBrowser.Attribute("Click")?.Value);
+
+        var feedbackButton = document
+            .Descendants()
+            .Single(element => string.Equals(element.Attribute(xaml + "Name")?.Value, "FeedbackSupportButton", StringComparison.Ordinal));
+        Equal("Feedback and support", feedbackButton.Attribute("AutomationProperties.Name")?.Value);
+        var feedbackOverlay = document
+            .Descendants()
+            .Single(element => string.Equals(element.Attribute(xaml + "Name")?.Value, "FeedbackSupportOverlay", StringComparison.Ordinal));
+        foreach (var requiredAction in new[] { "ReportBugButton", "ReportProviderEvidenceButton", "ReportSecurityButton" })
+        {
+            True(feedbackOverlay
+                .Descendants()
+                .Any(element => string.Equals(element.Attribute(xaml + "Name")?.Value, requiredAction, StringComparison.Ordinal)));
+        }
+
+        True(feedbackOverlay
+            .Descendants()
+            .Any(element => string.Equals(element.Attribute("Text")?.Value, "Keep reports privacy-safe", StringComparison.Ordinal)));
 
         var settings = document
             .Descendants()
@@ -636,6 +666,37 @@ try
                     TimeSpan.FromSeconds(5),
                     "restored provider layout");
                 AssertProviderChoicesCenteredAndVisible(root);
+                var feedbackButton = FindByName(root, "Feedback and support")
+                    ?? throw new InvalidOperationException("Feedback and support action was not found.");
+                ((InvokePattern)feedbackButton.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+                _ = await WaitForVisibleElementAsync(root, "Report an AI Drawer bug", "feedback and support overlay");
+                var providerEvidence = FindButtonByName(root, "Report provider compatibility")
+                    ?? throw new InvalidOperationException("Provider evidence action was not found.");
+                var privateSecurity = FindButtonByName(root, "Report a security issue privately")
+                    ?? throw new InvalidOperationException("Private security action was not found.");
+                if (!providerEvidence.Current.IsKeyboardFocusable || !privateSecurity.Current.IsKeyboardFocusable)
+                {
+                    throw new InvalidOperationException(
+                        $"Feedback report actions were not both keyboard-focusable "
+                        + $"(provider={providerEvidence.Current.IsKeyboardFocusable}, security={privateSecurity.Current.IsKeyboardFocusable}).");
+                }
+
+                if (FindByName(root, "Version and build information") is null)
+                {
+                    throw new InvalidOperationException("Version and build information was not exposed to UI Automation.");
+                }
+
+                if (Directory.Exists(Path.Combine(appDataRoot, "WebView2")))
+                {
+                    throw new InvalidOperationException("Opening native Feedback and Support unexpectedly created a WebView2 profile.");
+                }
+                var closeFeedback = FindByName(root, "Close feedback and support")
+                    ?? throw new InvalidOperationException("Feedback and support close action was not found.");
+                ((InvokePattern)closeFeedback.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+                await WaitUntilAsync(
+                    () => FindByName(root, "Report an AI Drawer bug") is null,
+                    TimeSpan.FromSeconds(5),
+                    "feedback and support dismissal");
                 var settingsButton = FindByName(root, "Settings")
                     ?? throw new InvalidOperationException("Settings action was not found.");
                 ((InvokePattern)settingsButton.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
@@ -693,6 +754,9 @@ try
         Equal(PopupDisposition.OpenExternal, chatGpt.ClassifyPopup("https://example.com/path?opaque=secret#fragment"));
         Equal(PopupDisposition.BlockUnsupported, chatGpt.ClassifyPopup("javascript:alert(1)"));
         Equal("https://example.com/path", ProviderDefinition.CreateSafeExternalUri("https://example.com/path?opaque=secret#fragment")?.AbsoluteUri.TrimEnd('/'));
+        Equal(
+            "https://chatgpt.com/c/opaque-id",
+            chatGpt.CreateSafeInMemoryUri("https://chatgpt.com/c/opaque-id?token=secret#fragment")?.AbsoluteUri.TrimEnd('/'));
         return Task.CompletedTask;
     });
 
@@ -846,6 +910,14 @@ static async Task ThrowsAsync<TException>(Func<Task> action)
 static AutomationElement? FindByName(AutomationElement root, string name)
 {
     var condition = new PropertyCondition(AutomationElement.NameProperty, name);
+    return root.FindFirst(TreeScope.Descendants, condition);
+}
+
+static AutomationElement? FindButtonByName(AutomationElement root, string name)
+{
+    var condition = new AndCondition(
+        new PropertyCondition(AutomationElement.NameProperty, name),
+        new PropertyCondition(AutomationElement.ControlTypeProperty, ControlType.Button));
     return root.FindFirst(TreeScope.Descendants, condition);
 }
 

@@ -14,6 +14,12 @@ namespace AIDrawer;
 
 public sealed partial class MainPage : Page
 {
+    private static readonly Uri BugReportUri = new(
+        "https://github.com/Sumire-no-kai/AI_Drawer/issues/new?template=bug_report.yml");
+    private static readonly Uri ProviderEvidenceReportUri = new(
+        "https://github.com/Sumire-no-kai/AI_Drawer/issues/new?template=provider_compatibility.yml");
+    private static readonly Uri PrivateSecurityReportUri = new(
+        "https://github.com/Sumire-no-kai/AI_Drawer/security/advisories/new");
     private static readonly Uri SupportUri = new("https://buymeacoffee.com/edward_lee");
     private static readonly SupportReminderPolicy SupportReminderPolicy = new(
         typeof(MainPage).Assembly.GetName().Version?.Major is > 0 and var majorRelease
@@ -151,10 +157,19 @@ public sealed partial class MainPage : Page
 
     internal void OpenSettings()
     {
+        FeedbackSupportOverlay.Visibility = Visibility.Collapsed;
         ConfigureSettingsUi();
         SettingsOverlay.Visibility = Visibility.Visible;
         SettingsCloseButton.Focus(FocusState.Programmatic);
         _ = RefreshStartupRegistrationAsync();
+    }
+
+    internal void OpenFeedbackSupport()
+    {
+        SettingsOverlay.Visibility = Visibility.Collapsed;
+        FeedbackBuildInformationText.Text = CreateBuildInformation();
+        FeedbackSupportOverlay.Visibility = Visibility.Visible;
+        FeedbackSupportCloseButton.Focus(FocusState.Programmatic);
     }
 
     private async void MainPage_Loaded(object sender, RoutedEventArgs e)
@@ -513,6 +528,15 @@ public sealed partial class MainPage : Page
         }
     }
 
+    private static string CreateBuildInformation()
+    {
+        var assembly = typeof(MainPage).Assembly.GetName();
+        var version = assembly.Version is { } assemblyVersion
+            ? $"{assemblyVersion.Major}.{assemblyVersion.Minor}.{Math.Max(0, assemblyVersion.Build)}"
+            : "unknown";
+        return $"AI Drawer {version} · {System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture} · {Environment.Version}";
+    }
+
     private void RecoveryKeepWaitingButton_Click(object sender, RoutedEventArgs e)
     {
         RecoveryPanel.Visibility = Visibility.Collapsed;
@@ -521,6 +545,36 @@ public sealed partial class MainPage : Page
             "Continuing to wait",
             "AI Drawer left this workspace open so the provider can recover without losing its local profile.",
             InfoBarSeverity.Informational);
+    }
+
+    private async void RecoveryOpenBrowserButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_pageState != PageLifecycleState.Ready
+            || _providerResetInProgress is not null
+            || _activeWorkspace is not { IsHome: false } workspace
+            || _workspaceCoordinator is not { } coordinator
+            || !coordinator.TryGetActiveBrowserRecoveryUri(workspace.Id, out var recoveryUri))
+        {
+            ShowStatus(
+                "Provider page could not be opened",
+                "AI Drawer did not have a reviewed HTTPS provider location available for browser recovery.",
+                InfoBarSeverity.Warning);
+            return;
+        }
+
+        var selectionVersion = _selectionVersion;
+        var decision = await ShowPromptAsync(
+            "Open this provider page in your browser?",
+            $"Destination: {recoveryUri.GetLeftPart(UriPartial.Authority)}\n\nAI Drawer removed query parameters and fragments. Your system browser uses its own sign-in profile, so this page may ask you to sign in again.",
+            "Open in browser",
+            "Stay in AI Drawer");
+        if (!decision.IsPrimary
+            || !IsCurrentSelection(selectionVersion, workspace))
+        {
+            return;
+        }
+
+        await LaunchExternalUriAsync(recoveryUri);
     }
 
     private async Task RestartActiveWorkspaceFromUiAsync(WorkspaceCoordinator coordinator)
@@ -1759,6 +1813,30 @@ public sealed partial class MainPage : Page
     private void SettingsButton_Click(object sender, RoutedEventArgs e)
         => OpenSettings();
 
+    private void FeedbackSupportButton_Click(object sender, RoutedEventArgs e)
+        => OpenFeedbackSupport();
+
+    private void CloseFeedbackSupportButton_Click(object sender, RoutedEventArgs e)
+        => FeedbackSupportOverlay.Visibility = Visibility.Collapsed;
+
+    private async void ReportBugButton_Click(object sender, RoutedEventArgs e)
+    {
+        FeedbackSupportOverlay.Visibility = Visibility.Collapsed;
+        await LaunchExternalUriAsync(BugReportUri);
+    }
+
+    private async void ReportProviderEvidenceButton_Click(object sender, RoutedEventArgs e)
+    {
+        FeedbackSupportOverlay.Visibility = Visibility.Collapsed;
+        await LaunchExternalUriAsync(ProviderEvidenceReportUri);
+    }
+
+    private async void ReportSecurityButton_Click(object sender, RoutedEventArgs e)
+    {
+        FeedbackSupportOverlay.Visibility = Visibility.Collapsed;
+        await LaunchExternalUriAsync(PrivateSecurityReportUri);
+    }
+
     private async void DefaultProviderComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_pageState != PageLifecycleState.Ready
@@ -2198,6 +2276,13 @@ public sealed partial class MainPage : Page
 
         if (_promptCompletion is null)
         {
+            if (FeedbackSupportOverlay.Visibility == Visibility.Visible)
+            {
+                args.Handled = true;
+                FeedbackSupportOverlay.Visibility = Visibility.Collapsed;
+                return;
+            }
+
             if (SettingsOverlay.Visibility == Visibility.Visible)
             {
                 args.Handled = true;
