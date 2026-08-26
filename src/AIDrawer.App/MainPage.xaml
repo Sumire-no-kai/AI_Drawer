@@ -185,6 +185,7 @@
                                     <ToggleSwitch
                                         x:Name="KeepActiveToggle"
                                         Margin="12,8"
+                                        AutomationProperties.Name="Keep active"
                                         Header="Keep active"
                                         OffContent="Normal disposal priority"
                                         OnContent="Last to dispose"
@@ -210,7 +211,11 @@
                                             <TextBlock Text="Reset website data" />
                                         </StackPanel>
                                     </Button>
-                                    <Button Style="{StaticResource ActionMenuButtonStyle}" Click="ExitButton_Click">
+                                    <Button
+                                        x:Name="ExitApplicationButton"
+                                        Style="{StaticResource ActionMenuButtonStyle}"
+                                        AutomationProperties.Name="Exit AI Drawer"
+                                        Click="ExitButton_Click">
                                         <StackPanel Orientation="Horizontal" Spacing="10">
                                             <FontIcon Glyph="&#xE8BB;" FontSize="16" />
                                             <TextBlock Text="Exit AI Drawer" />
@@ -229,6 +234,7 @@
                     <FontIcon Glyph="&#xE939;" />
                 </Button>
                 <Button
+                    x:Name="SettingsButton"
                     Style="{StaticResource WorkspaceActionButtonStyle}"
                     AutomationProperties.Name="Settings"
                     Click="SettingsButton_Click">
@@ -369,6 +375,22 @@
                                         </ResourceDictionary>
                                     </Grid.Resources>
                                 </Grid>
+                                <Button
+                                    x:Name="MissingProviderFeedbackButton"
+                                    Margin="8,2,8,5"
+                                    Padding="4,3"
+                                    HorizontalAlignment="Center"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                    AutomationProperties.Name="Can't find the AI you want? Tell me."
+                                    AutomationProperties.HelpText="Opens the AI Drawer feedback form in your system browser."
+                                    Click="MissingProviderFeedbackButton_Click">
+                                    <TextBlock
+                                        Text="Can't find the AI you want? Tell me."
+                                        FontSize="12"
+                                        TextDecorations="Underline" />
+                                </Button>
                             </StackPanel>
                         </Border>
                         <Border
@@ -637,14 +659,14 @@
                         </Border>
 
                         <StackPanel Spacing="8">
-                            <TextBlock Text="Public feedback" FontSize="16" FontWeight="SemiBold" />
+                            <TextBlock Text="Feedback" FontSize="16" FontWeight="SemiBold" />
                             <Button
                                 x:Name="ReportBugButton"
                                 Style="{StaticResource AppSecondaryButtonStyle}"
                                 HorizontalAlignment="Stretch"
                                 HorizontalContentAlignment="Stretch"
-                                AutomationProperties.Name="Report an AI Drawer bug"
-                                AutomationProperties.HelpText="Opens the privacy-safe AI Drawer bug template in the system browser. Public reports must not contain sensitive provider or account data."
+                                AutomationProperties.Name="Send feedback or report a bug"
+                                AutomationProperties.HelpText="Opens the AI Drawer Microsoft Forms feedback form in the system browser. Reports must not contain sensitive provider or account data."
                                 Click="ReportBugButton_Click">
                                 <Grid ColumnSpacing="12">
                                     <Grid.ColumnDefinitions>
@@ -653,8 +675,8 @@
                                     </Grid.ColumnDefinitions>
                                     <FontIcon Glyph="&#xEBE8;" FontSize="18" />
                                     <StackPanel Grid.Column="1" Spacing="2">
-                                        <TextBlock Text="Report an AI Drawer bug" FontWeight="SemiBold" />
-                                        <TextBlock Text="Public GitHub issue · native shell, recovery, navigation, download, or packaging" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                                        <TextBlock Text="Send feedback or report a bug" FontWeight="SemiBold" />
+                                        <TextBlock Text="Microsoft Forms · missing provider, feature request, native shell, recovery, navigation, download, or packaging" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                     </StackPanel>
                                 </Grid>
                             </Button>

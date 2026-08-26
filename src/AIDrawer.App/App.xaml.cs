@@ -33,6 +33,31 @@ public partial class App : Application
         _ = app._window.DispatcherQueue.TryEnqueue(app._window.ShowAndActivate);
     }
 
+#if DEBUG
+    internal static void RunProfileActionForAcceptance(string action, string testDataRoot)
+    {
+        var app = _currentApp;
+        if (app?._window is null)
+        {
+            return;
+        }
+
+        _ = app._window.DispatcherQueue.TryEnqueue(async () =>
+        {
+            var resultPath = Path.Combine(testDataRoot, "profile-result.acceptance");
+            try
+            {
+                var result = await app._window.RunProfileActionForAcceptanceAsync(action);
+                File.WriteAllText(resultPath, result);
+            }
+            catch (Exception exception)
+            {
+                File.WriteAllText(resultPath, $"error:{exception.GetType().Name}");
+            }
+        });
+    }
+#endif
+
     internal static void ExitApplication()
     {
         _currentApp?._window?.ExitApplication();

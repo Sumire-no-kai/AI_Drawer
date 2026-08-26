@@ -6,6 +6,9 @@ param(
     [ValidateSet('x64', 'x86', 'arm64')]
     [string]$Architecture = 'x64',
 
+    [ValidatePattern('^\d{1,5}\.\d{1,5}\.\d{1,5}\.\d{1,5}$')]
+    [string]$PackageVersion = '1.0.0.0',
+
     [string]$DotNetPath = 'dotnet',
 
     [string]$OutputRoot = 'artifacts\beta-candidates',
@@ -30,6 +33,100 @@ $packageDirectory = Join-Path $candidateDirectory 'package'
 $normalizedArchitecture = $Architecture.ToLowerInvariant()
 $platform = if ($normalizedArchitecture -eq 'arm64') { 'ARM64' } else { $normalizedArchitecture }
 $runtimeIdentifier = "win-$normalizedArchitecture"
+
+function Read-PackageManifest {
+    param([Parameter(Mandatory)][string]$PackagePath)
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $archive = [System.IO.Compression.ZipFile]::OpenRead($PackagePath)
+    try {
+        $manifestEntry = $archive.Entries | Where-Object FullName -EQ 'AppxManifest.xml'
+        if ($null -eq $manifestEntry) {
+            throw 'The generated MSIX does not contain AppxManifest.xml.'
+        }
+
+        $manifestStream = $manifestEntry.Open()
+        $manifestReader = [System.IO.StreamReader]::new($manifestStream)
+        try {
+            return [xml]$manifestReader.ReadToEnd()
+        }
+        finally {
+            $manifestReader.Dispose()
+            $manifestStream.Dispose()
+        }
+    }
+    finally {
+        $archive.Dispose()
+    }
+}
+
+function Resolve-MakeAppxPath {
+    param([Parameter(Mandatory)][string]$AssetsPath)
+
+    $assets = Get-Content -LiteralPath $AssetsPath -Raw | ConvertFrom-Json
+    $packageKey = @($assets.libraries.PSObject.Properties.Name | Where-Object {
+        $_ -like 'Microsoft.Windows.SDK.BuildTools/*'
+    }) | Select-Object -First 1
+    if ([string]::IsNullOrWhiteSpace($packageKey)) {
+        throw 'Microsoft.Windows.SDK.BuildTools was not found in project.assets.json.'
+    }
+
+    $packageFolder = @($assets.packageFolders.PSObject.Properties.Name) | Select-Object -First 1
+    $packageRelativePath = $packageKey.ToLowerInvariant().Replace('/', [System.IO.Path]::DirectorySeparatorChar)
+    $packageRoot = Join-Path $packageFolder $packageRelativePath
+    $hostArchitecture = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant()
+    $makeAppx = Get-ChildItem -LiteralPath (Join-Path $packageRoot 'bin') -Filter 'makeappx.exe' -File -Recurse |
+        Where-Object { $_.Directory.Name.ToLowerInvariant() -eq $hostArchitecture } |
+        Sort-Object FullName -Descending |
+        Select-Object -First 1
+    if ($null -eq $makeAppx) {
+        throw "A MakeAppx executable for the host architecture '$hostArchitecture' was not found."
+    }
+
+    return $makeAppx.FullName
+}
+
+function Set-InternalPackageVersion {
+    param(
+        [Parameter(Mandatory)][string]$PackagePath,
+        [Parameter(Mandatory)][string]$Version,
+        [Parameter(Mandatory)][string]$AssetsPath
+    )
+
+    $temporaryRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("AI-Drawer-MsixRepack-{0}" -f [guid]::NewGuid().ToString('N'))
+    $expandedDirectory = Join-Path $temporaryRoot 'expanded'
+    $repackedPath = Join-Path $temporaryRoot 'repacked.msix'
+    try {
+        New-Item -ItemType Directory -Path $expandedDirectory -Force | Out-Null
+        $makeAppxPath = Resolve-MakeAppxPath -AssetsPath $AssetsPath
+        & $makeAppxPath unpack /p $PackagePath /d $expandedDirectory /o
+        if ($LASTEXITCODE -ne 0) {
+            throw "MakeAppx unpack failed with exit code $LASTEXITCODE."
+        }
+
+        $manifestPath = Join-Path $expandedDirectory 'AppxManifest.xml'
+        [xml]$manifest = Get-Content -LiteralPath $manifestPath -Raw
+        $manifest.Package.Identity.Version = $Version
+        $manifest.Save($manifestPath)
+
+        & $makeAppxPath pack /d $expandedDirectory /p $repackedPath /o
+        if ($LASTEXITCODE -ne 0) {
+            throw "MakeAppx pack failed with exit code $LASTEXITCODE."
+        }
+
+        [System.IO.File]::Move($repackedPath, $PackagePath, $true)
+    }
+    finally {
+        $resolvedTemporaryRoot = [System.IO.Path]::GetFullPath($temporaryRoot)
+        $systemTemporaryRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath())
+        $temporaryLeaf = [System.IO.Path]::GetFileName($resolvedTemporaryRoot)
+        if ($resolvedTemporaryRoot.StartsWith($systemTemporaryRoot, [System.StringComparison]::OrdinalIgnoreCase) -and
+            $temporaryLeaf.StartsWith('AI-Drawer-MsixRepack-', [System.StringComparison]::Ordinal) -and
+            [System.IO.Directory]::Exists($resolvedTemporaryRoot)) {
+            [System.IO.Directory]::Delete($resolvedTemporaryRoot, $true)
+        }
+    }
+}
 
 Push-Location $repositoryRoot
 try {
@@ -89,6 +186,12 @@ try {
         throw "Expected exactly one MSIX package, but found $($packages.Count)."
     }
 
+    $initialManifest = Read-PackageManifest -PackagePath $packages[0].FullName
+    if ($initialManifest.Package.Identity.Version -ne $PackageVersion) {
+        $assetsPath = Join-Path (Split-Path -Parent $projectPath) 'obj\project.assets.json'
+        Set-InternalPackageVersion -PackagePath $packages[0].FullName -Version $PackageVersion -AssetsPath $assetsPath
+    }
+
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $archive = [System.IO.Compression.ZipFile]::OpenRead($packages[0].FullName)
     try {
@@ -131,6 +234,10 @@ try {
 
     if ($identity.ProcessorArchitecture -ne $normalizedArchitecture) {
         throw "Expected package architecture '$normalizedArchitecture', but found '$($identity.ProcessorArchitecture)'."
+    }
+
+    if ($identity.Version -ne $PackageVersion) {
+        throw "Expected package version '$PackageVersion', but found '$($identity.Version)'."
     }
 
     $namespaceManager = [System.Xml.XmlNamespaceManager]::new($packageManifest.NameTable)

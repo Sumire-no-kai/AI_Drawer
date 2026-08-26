@@ -16,6 +16,13 @@ var appDataRoot = Path.Combine(testRoot, "AI Drawer");
 var sessionPath = Path.Combine(appDataRoot, "workspaces-v1.json");
 var settingsPath = Path.Combine(appDataRoot, "settings-v1.json");
 
+if (!string.Equals(ApplicationDataPaths.AppDataRoot, appDataRoot, StringComparison.OrdinalIgnoreCase))
+{
+    Console.Error.WriteLine(
+        "The application test harness requires the Debug-only isolated data root and will not access normal application data.");
+    return 2;
+}
+
 try
 {
     await CheckAsync("corrupt session is preserved until an explicit backup", async () =>
@@ -175,6 +182,55 @@ try
         return Task.CompletedTask;
     });
 
+    await CheckAsync("isolated provider-origin overrides are debug-only and tightly bounded", () =>
+    {
+        var catalogCode = File.ReadAllText(GetRepositoryPath("src", "AIDrawer.App", "ProviderCatalog.cs"));
+        True(catalogCode.Contains("#if DEBUG", StringComparison.Ordinal));
+        True(catalogCode.Contains("AI_DRAWER_TEST_DATA_ROOT", StringComparison.Ordinal));
+        True(catalogCode.Contains("AI_DRAWER_TEST_PROVIDER_ORIGIN", StringComparison.Ordinal));
+        True(catalogCode.Contains("uri.IsDefaultPort", StringComparison.Ordinal));
+        True(catalogCode.Contains("uri.AbsolutePath == \"/\"", StringComparison.Ordinal));
+        return Task.CompletedTask;
+    });
+
+    await CheckAsync("isolated profile actions remain debug-only and path-scoped", () =>
+    {
+        var programCode = File.ReadAllText(GetRepositoryPath("src", "AIDrawer.App", "Program.cs"));
+        var appCode = File.ReadAllText(GetRepositoryPath("src", "AIDrawer.App", "App.xaml.cs"));
+        True(programCode.Contains("#if DEBUG", StringComparison.Ordinal));
+        True(programCode.Contains("profile-action.acceptance", StringComparison.Ordinal));
+        True(programCode.Contains("Path.GetFullPath(Path.GetTempPath())", StringComparison.Ordinal));
+        True(programCode.Contains("AI-Drawer-RuntimeAcceptance-", StringComparison.Ordinal));
+        True(programCode.Contains("new FileInfo(markerPath).Length > 32", StringComparison.Ordinal));
+        True(programCode.Contains("clear-cache\" or \"reset-provider\" or \"reset-all", StringComparison.Ordinal));
+        True(programCode.Contains("App.RunProfileActionForAcceptance(action, testDataRoot!);", StringComparison.Ordinal));
+        True(appCode.Contains("internal static void RunProfileActionForAcceptance", StringComparison.Ordinal));
+        False(AIDrawer.Program.IsIsolatedRuntimeAcceptanceRoot(@"C:\real-data"));
+        var acceptanceRoot = Path.Combine(
+            Path.GetTempPath(),
+            $"AI-Drawer-RuntimeAcceptance-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(acceptanceRoot);
+        try
+        {
+            True(AIDrawer.Program.IsIsolatedRuntimeAcceptanceRoot(acceptanceRoot));
+        }
+        finally
+        {
+            Directory.Delete(acceptanceRoot);
+        }
+        return Task.CompletedTask;
+    });
+
+    await CheckAsync("download controller treats files and directories as collisions and never launches results", () =>
+    {
+        var controllerCode = File.ReadAllText(GetRepositoryPath("src", "AIDrawer.App", "WebViewDownloadController.cs"));
+        True(controllerCode.Contains("File.Exists(path) || Directory.Exists(path)", StringComparison.Ordinal));
+        True(controllerCode.Contains("args.Cancel = !decision.Allowed", StringComparison.Ordinal));
+        False(controllerCode.Contains("Launcher.Launch", StringComparison.Ordinal));
+        False(controllerCode.Contains("Process.Start", StringComparison.Ordinal));
+        return Task.CompletedTask;
+    });
+
     await CheckAsync("Copilot embeds only exact reviewed personal application origins", () =>
     {
         var copilot = ProviderCatalog.AvailableProviders.Single(candidate => candidate.Id == "copilot");
@@ -314,6 +370,14 @@ try
         True(document
             .Descendants()
             .Any(element => string.Equals(element.Attribute("SizeChanged")?.Value, "ProviderChooser_SizeChanged", StringComparison.Ordinal)));
+        var missingProviderFeedback = document
+            .Descendants()
+            .Single(element => string.Equals(
+                element.Attribute(xaml + "Name")?.Value,
+                "MissingProviderFeedbackButton",
+                StringComparison.Ordinal));
+        Equal("Can't find the AI you want? Tell me.", missingProviderFeedback.Attribute("AutomationProperties.Name")?.Value);
+        Equal("MissingProviderFeedbackButton_Click", missingProviderFeedback.Attribute("Click")?.Value);
         var rootLayout = document
             .Descendants()
             .Single(element => string.Equals(
@@ -357,6 +421,7 @@ try
         True(mainPageCode.Contains("Keyboard shortcut Ctrl+", StringComparison.Ordinal));
         True(mainPageCode.Contains("Glyph = \"\\uE76C\"", StringComparison.Ordinal));
         True(mainPageCode.Contains("VirtualKey.Number9 => 8", StringComparison.Ordinal));
+        True(mainPageCode.Contains("https://forms.cloud.microsoft/r/WLQySVad7g", StringComparison.Ordinal));
         True(mainPageCode.Contains(
             "HomeContentContainer.Width = Math.Min(args.NewSize.Width, HomeContentMaxWidth);",
             StringComparison.Ordinal));
@@ -445,6 +510,21 @@ try
         True(code.Contains("args.State = CoreWebView2PermissionState.Deny", StringComparison.Ordinal));
         True(code.Contains("args.Cancel = true;", StringComparison.Ordinal));
         True(code.Contains("Provider observation mode requires a fresh disposable profile.", StringComparison.Ordinal));
+        return Task.CompletedTask;
+    });
+
+    await CheckAsync("browser recovery observes the environment exit and deduplicates with per-view failures", () =>
+    {
+        var coordinatorCode = File.ReadAllText(GetRepositoryPath("src", "AIDrawer.App", "WorkspaceCoordinator.cs"));
+        True(coordinatorCode.Contains("environment.BrowserProcessExited += Environment_BrowserProcessExited", StringComparison.Ordinal));
+        True(coordinatorCode.Contains("environment.BrowserProcessExited -= Environment_BrowserProcessExited", StringComparison.Ordinal));
+        True(coordinatorCode.Contains("_browserRecoveryInProgress", StringComparison.Ordinal));
+        True(coordinatorCode.Contains("_profileCleanupInProgress", StringComparison.Ordinal));
+        True(coordinatorCode.Contains("RecoverBrowserProcessAfterExitFromQueueAsync", StringComparison.Ordinal));
+        True(coordinatorCode.Contains("attempt < 50", StringComparison.Ordinal));
+        True(coordinatorCode.Contains("Process.GetProcessById", StringComparison.Ordinal));
+        True(coordinatorCode.Contains("process.EnableRaisingEvents = true", StringComparison.Ordinal));
+        True(coordinatorCode.Contains("DetachObservedBrowserProcess", StringComparison.Ordinal));
         return Task.CompletedTask;
     });
 
@@ -669,7 +749,7 @@ try
                 var feedbackButton = FindByName(root, "Feedback and support")
                     ?? throw new InvalidOperationException("Feedback and support action was not found.");
                 ((InvokePattern)feedbackButton.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
-                _ = await WaitForVisibleElementAsync(root, "Report an AI Drawer bug", "feedback and support overlay");
+                _ = await WaitForVisibleElementAsync(root, "Send feedback or report a bug", "feedback and support overlay");
                 var providerEvidence = FindButtonByName(root, "Report provider compatibility")
                     ?? throw new InvalidOperationException("Provider evidence action was not found.");
                 var privateSecurity = FindButtonByName(root, "Report a security issue privately")
@@ -694,7 +774,7 @@ try
                     ?? throw new InvalidOperationException("Feedback and support close action was not found.");
                 ((InvokePattern)closeFeedback.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
                 await WaitUntilAsync(
-                    () => FindByName(root, "Report an AI Drawer bug") is null,
+                    () => FindByName(root, "Send feedback or report a bug") is null,
                     TimeSpan.FromSeconds(5),
                     "feedback and support dismissal");
                 var settingsButton = FindByName(root, "Settings")
@@ -862,7 +942,14 @@ async Task CheckAsync(string name, Func<Task> test)
     }
     catch (Exception exception)
     {
-        failures.Add($"FAIL: {name}: {exception.Message}");
+        var rootCause = exception;
+        while (rootCause.InnerException is not null)
+        {
+            rootCause = rootCause.InnerException;
+        }
+
+        failures.Add(
+            $"FAIL: {name}: {rootCause.GetType().Name}: {rootCause.Message}{Environment.NewLine}{rootCause.StackTrace}");
     }
 }
 

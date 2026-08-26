@@ -14,8 +14,8 @@ namespace AIDrawer;
 
 public sealed partial class MainPage : Page
 {
-    private static readonly Uri BugReportUri = new(
-        "https://github.com/Sumire-no-kai/AI_Drawer/issues/new?template=bug_report.yml");
+    private static readonly Uri FeedbackFormUri = new(
+        "https://forms.cloud.microsoft/r/WLQySVad7g");
     private static readonly Uri ProviderEvidenceReportUri = new(
         "https://github.com/Sumire-no-kai/AI_Drawer/issues/new?template=provider_compatibility.yml");
     private static readonly Uri PrivateSecurityReportUri = new(
@@ -1018,6 +1018,30 @@ public sealed partial class MainPage : Page
         }
     }
 
+#if DEBUG
+    internal async Task<string> RunProfileActionForAcceptanceAsync(string action)
+    {
+        if (_pageState != PageLifecycleState.Ready
+            || _workspaceCoordinator is not { } coordinator
+            || coordinator.ActiveWorkspace is not { } workspace
+            || !string.Equals(_activeWorkspace?.Id, workspace.WorkspaceId, StringComparison.Ordinal))
+        {
+            return "unavailable";
+        }
+
+        var result = action switch
+        {
+            "clear-cache" => await coordinator.ClearActiveProviderCacheAsync(workspace.WorkspaceId),
+            "reset-provider" => await coordinator.ResetActiveWorkspaceAsync(workspace.WorkspaceId),
+            "reset-all" => await coordinator.ResetAllProviderDataAsync(),
+            _ => null
+        };
+        return result is null
+            ? "unavailable"
+            : result.Succeeded ? "passed" : $"failed:{result.Failures.Count}";
+    }
+#endif
+
     private void ShowProfileCleanupFailures(
         string title,
         IReadOnlyList<ProviderProfileCleanupFailure> failures)
@@ -1816,13 +1840,16 @@ public sealed partial class MainPage : Page
     private void FeedbackSupportButton_Click(object sender, RoutedEventArgs e)
         => OpenFeedbackSupport();
 
+    private async void MissingProviderFeedbackButton_Click(object sender, RoutedEventArgs e) =>
+        await LaunchExternalUriAsync(FeedbackFormUri);
+
     private void CloseFeedbackSupportButton_Click(object sender, RoutedEventArgs e)
         => FeedbackSupportOverlay.Visibility = Visibility.Collapsed;
 
     private async void ReportBugButton_Click(object sender, RoutedEventArgs e)
     {
         FeedbackSupportOverlay.Visibility = Visibility.Collapsed;
-        await LaunchExternalUriAsync(BugReportUri);
+        await LaunchExternalUriAsync(FeedbackFormUri);
     }
 
     private async void ReportProviderEvidenceButton_Click(object sender, RoutedEventArgs e)
