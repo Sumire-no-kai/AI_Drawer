@@ -1,5 +1,18 @@
 # Security review record
 
+## 2026-08-27 final current-host Standard scan
+
+Codex Security Standard scan `50e49bc8-acaa-4684-9639-5fbd29f91623` completed against immutable source revision `c243c166adee0bb98588a0c875e2ccf52e964c2e`. It closed 108/108 tracked-file review receipts with an independent baseline audit, an architecture/threat-model audit, and parent source-flow validation. The preflight exposed three usable worker slots instead of the six-slot advisory target; the parent completed the remaining coverage. The scan warning that the working tree later changed refers to the test-only UI Automation stabilization made after the immutable target was captured.
+
+The scan found no backdoor, covert telemetry, prompt/response/DOM/credential/cookie/token/payment collection, arbitrary command execution, automatic download execution, hardcoded secret/private key, or unexpected package capability. It validated two high-confidence **Low** findings:
+
+1. `csf_0db8d656fda6418a1510d9b6` (`CWE-693`): the generic provider factory gives every non-Gemini provider empty known-purchase hosts and paths. An unknown same-origin checkout can therefore reach `EmbedProviderApplication` until privacy-safe account evidence supplies an exact deny rule.
+2. `csf_55bb3e9afc0420210d58a011` (`CWE-183`): Grok lists the full exact `x.com` origin as application content. Exact-host HTTPS checks prevent suffix confusion, user-info, custom ports, and subdomain widening, but arbitrary paths on `x.com` remain broader than a reviewed Grok-only route.
+
+Both findings are mitigated by the native no-purchase disclosure, exact HTTPS/default-port host comparison, certificate fail-closed behavior, disabled page-to-native bridges/autofill, native permission/download confirmation, and the absence of payment-data access. They are not closed by those controls. Do not guess Provider paths: use a privacy-safe test account, never enter payment data, record only the minimum origin/path evidence, then add top-level/frame/popup regression vectors.
+
+The sealed scan generated canonical manifest, findings, coverage, Markdown, and SARIF artifacts in its local security-scan workspace. Full current-host build, package, UI, runtime, and boundary evidence is in `docs/testing/HOST_ACCEPTANCE_2026-08-27.md`.
+
 ## 2026-08-26 repository Standard scan
 
 Codex Security Standard scan `8745c8a7-9be7-42d9-858d-5f77e4a51055` completed against immutable master revision `0c7fd79593925bec364b67779102826bac86b0eb`. It reviewed all 106 tracked files and closed six planned security surfaces. Delegated baseline and focused-worker slots were unavailable, so this was a sequential source audit rather than an independent multi-reviewer result.
@@ -40,6 +53,6 @@ This closes the four source findings on the remediation branch. It does not clos
 - Complete the provider-specific runtime Gates without claiming provider compatibility early.
 - Re-run focused security review after any later security-boundary or release-pipeline change and resolve or record every finding.
 - Validate a signed candidate on the supported Windows/architecture matrix, including installation, update, rollback, and uninstall.
-- Enable and test private vulnerability reporting; publish the final contact only after that channel exists.
+- Keep GitHub Private Vulnerability Reporting enabled and verify owner notifications, monitoring, and response ownership before publication.
 
 This record describes code and local validation coverage, not a claim that external provider or Store review has passed.

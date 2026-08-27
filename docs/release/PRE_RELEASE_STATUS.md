@@ -10,26 +10,26 @@ This is the durable current-state summary for the first AI Drawer Public Beta. I
 - Merged work: PR #18, reviewed head `cd925b2b2d49bb0c3cc7595f51dabe75bd9d75a6`
 - Post-merge CI: run `33037886187`; x64, x86, ARM64, formatting, and compatibility/privacy-safe policy jobs passed
 - Public artifact: none; inspected candidates remain unsigned internal evidence and must not be distributed to end users
-- Planning estimate only: application implementation about 90%, code-freeze readiness about 85%, Public Beta readiness about 60–65%. These percentages do not override an unchecked release Gate.
+- Current-host no-account source/runtime acceptance is complete and recorded in `docs/testing/HOST_ACCEPTANCE_2026-08-27.md`. Planning estimate only: application implementation about 92%, code-freeze readiness about 88%, Public Beta readiness about 65–70%. These percentages do not override an unchecked release Gate.
 
 ## First Beta platform scope
 
 | Target | Public support intent | Current evidence |
 | --- | --- | --- |
-| Windows 11 x64 | Included | Current AMD64 host is available and reports build `10.0.26200.9168`; final merged-source GUI, accessibility-setting, and package acceptance remain open. |
+| Windows 11 x64 | Included | Source, no-account runtime, real five-minute resource/recovery, Light/150% DPI UI Automation, and temporary Dark/200% text/reduced-motion/transparency-off checks pass on build `10.0.26200.9168` with WebView2 `151.0.4129.107`. Provider-account, live High Contrast/Narrator/200% display DPI, and signed-package acceptance remain open. |
 | Windows 10 x64 | Included | Matching device or controlled VM acceptance remains open. Only versions actually tested may be named in release notes. |
 | Windows 11 ARM64 | Included | Cross-build and package inspection pass; matching-device runtime, WebView2, tray, shortcut, startup, install, and uninstall acceptance remain open. |
 | Windows x86 | Not included | CI/build inspection only; it is not a first-Beta runtime support claim. |
 
 Do not claim all serviced Windows 10 editions, LTSC 2019, or a broad Windows range unless those exact environments pass. Cross-architecture compilation is never device-runtime evidence.
 
-## What can be completed on the current host
+## Completed on the current host
 
-1. Align a clean checkout to the merged `master` commit and repeat Release builds, maintained tests, formatting, dependency/license review, and a final repository security scan.
-2. Run the final fast and five-minute no-account GUI acceptance, including cold start, onboarding input, single instance, four-workspace pressure, Keep active, grace-period convergence, workspace restoration, renderer/GPU/browser recovery, cache/reset actions, close-to-tray, shortcut restoration, exact Exit, and post-exit process/profile residue.
-3. Record cold-start, memory, CPU, WebView2 process count, live-view peak, and steady-state convergence without making unmeasured browser-comparison claims.
-4. Exercise Windows 11 x64 light/dark, minimum-window, keyboard/focus order, and app-level UI Automation. Narrator, High Contrast, reduced-motion/transparency, 150%/200% DPI, and text scaling require temporary visible system-setting changes and human visual confirmation.
-5. Manually confirm the fixed BMC and Microsoft Forms destinations open in the system browser without appending provider, account, application, build, query, or fragment data where the applicable policy requires stripping.
+1. Merged-source builds, maintained tests, formatting, dependency/license review, unsigned candidate inspection, and a final repository Standard security scan are complete.
+2. Fast and five-minute no-account GUI acceptance is complete, including cold start, single instance, four-workspace pressure, Keep active, grace-period convergence, workspace restoration, Renderer/GPU/Browser recovery, cache/reset APIs, tray, shortcut, second launch, exact Exit, and zero process/profile residue.
+3. One-host cold-start, memory, and WebView2 process measurements are recorded without extrapolation: 8 processes at burst, 7 after grace expiry, and 6 at stable pre-fault state.
+4. Light/150% DPI, minimum-window, keyboard/focus, and app-level UI Automation pass. The same suite exits successfully under temporary Dark, 200% text, reduced-motion, and transparency-off settings, with the original settings restored afterward.
+5. Fixed BMC and Forms URL contracts are source- and policy-tested. The user-visible system-browser launch remains a final manual interaction check so automated acceptance does not open external pages or inspect an existing browser profile.
 
 ## Gates that need accounts, another environment, or owner action
 
@@ -54,7 +54,7 @@ Do not claim all serviced Windows 10 editions, LTSC 2019, or a broad Windows ran
 
 ## Open security findings
 
-The last Standard scan found no backdoor, covert telemetry, sensitive page-to-native collection, arbitrary command execution, automatic download execution, hardcoded secret, or unexpected package capability. It did not close two Low provider-policy findings:
+Standard scan `50e49bc8-acaa-4684-9639-5fbd29f91623` at `c243c16` covered 108/108 tracked-file receipts and found no backdoor, covert telemetry, sensitive page-to-native collection, arbitrary command execution, automatic download execution, hardcoded secret/private key, or unexpected package capability. It did not close two Low provider-policy findings:
 
 1. Non-Gemini providers still lack exact observed purchase-route rules, so a same-origin checkout path may remain embedded.
 2. Grok currently permits the full exact `x.com` application origin pending privacy-safe evidence of the minimum authentication route.

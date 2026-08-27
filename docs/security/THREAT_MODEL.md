@@ -25,4 +25,4 @@ Provider authentication rules, account recovery, provider-hosted conversation co
 
 ## Reporting
 
-Do not place sensitive security details in public issues. `SECURITY.md` is not yet a private reporting channel; Public Beta remains blocked until a reviewed private channel is enabled and tested.
+Do not place sensitive security details in public issues. GitHub Private Vulnerability Reporting is enabled and linked from `SECURITY.md` and the native Feedback & Support surface. Public Beta still requires the repository owner to verify notification, monitoring, and response ownership for that channel.

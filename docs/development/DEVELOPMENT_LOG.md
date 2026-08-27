@@ -2,6 +2,24 @@
 
 This is the durable development record for implementation decisions, verified behavior, limitations, and open work. It is not a release changelog. Planned behavior must not be presented as shipped or provider-compatible behavior.
 
+## 2026-08-27 — current-host final acceptance and security revalidation
+
+### Completed evidence
+
+- Rebuilt the production app in x64, x86, and ARM64 Debug/Release; rebuilt the x64 Compatibility Lab and application tests; passed 47 Core checks, 21 non-GUI application checks, formatting for all four maintained projects, PowerShell parser checks, a fresh four-project NuGet vulnerability audit, and package-license reconciliation.
+- Built and inspected new unsigned x64 and ARM64 candidates. Architecture, manifest, the disabled startup task, the reviewed `runFullTrust` capability, unsigned state, checksum metadata, and absence of private keys passed. The candidates remain internal and uninstalled; missing `mspdbcmf.exe` still prevents symbol-package generation.
+- Completed a fast isolated no-account runtime run at 16/16 and the real five-minute run at 20/20 on Windows `10.0.26200.9168` x64 with WebView2 `151.0.4129.107`. The full run covered cold start, single instance, four-workspace pressure, Keep active, five-minute expiry, steady-state release, same-profile restoration, cache/reset APIs, Renderer/GPU/Browser recovery, tray, shortcut, second launch, exact Exit, and zero process/profile residue.
+- Measured 8 WebView2 processes at the four-workspace burst, 7 after the grace period, and 6 at the stable pre-fault state. This is one-host evidence only. The native Home surface appeared in 1081 ms.
+- Corrected a UI Automation defect that invoked BMC and Feedback & Support actions before scrolling them into view at non-default DPI or large text. The test now requires visible nonzero bounds, then separately verifies persisted settings and visual dismissal. The complete suite passed 25 checks on the current Light/150% DPI environment and exited successfully under temporary Dark, 200% text, reduced-motion, and transparency-off settings; every changed Windows setting was restored and verified.
+- Completed Codex Security Standard scan `50e49bc8-acaa-4684-9639-5fbd29f91623` against immutable `c243c166adee0bb98588a0c875e2ccf52e964c2e`, with 108/108 tracked-file receipts, independent baseline and architecture reviews, and two validated Low findings. No backdoor, covert telemetry, sensitive page-content collection, arbitrary command execution, automatic download execution, hardcoded secret, private key, or unexpected capability was found.
+
+Detailed commands, measurements, checksums, failure boundaries, and remaining Gates are recorded in `docs/testing/HOST_ACCEPTANCE_2026-08-27.md`.
+
+### Remaining boundary
+
+- The two open Low findings still require privacy-safe provider-account evidence: exact non-Gemini purchase routes and whether Grok needs any embedded `x.com` route. Warning copy and existing strict Origin checks mitigate but do not technically close them.
+- Windows 10 x64, Windows 11 ARM64 hardware, provider-account matrices, live High Contrast/Narrator/200% display DPI, clean signed-package install/update/startup/rollback/uninstall, publisher/signing provenance, exact public bytes, Forms administration, website/public surfaces, and Store submission remain external or owner Gates.
+
 ## 2026-08-27 — merged M4 baseline and final-acceptance handoff
 
 ### Verified merged baseline
