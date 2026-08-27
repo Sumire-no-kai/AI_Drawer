@@ -2,6 +2,25 @@
 
 This is the durable development record for implementation decisions, verified behavior, limitations, and open work. It is not a release changelog. Planned behavior must not be presented as shipped or provider-compatible behavior.
 
+## 2026-08-27 — merged M4 baseline and final-acceptance handoff
+
+### Verified merged baseline
+
+- PR #18, **M4: add runtime acceptance and feedback flow**, was merged into `master` as `0191ee5e16bede4f0da9dbefd0b9d3a6713034c9`; its reviewed head was `cd925b2b2d49bb0c3cc7595f51dabe75bd9d75a6`.
+- The post-merge `master` CI run `33037886187` passed all five maintained jobs: x64, x86, and ARM64 production builds, formatting, and compatibility/privacy-safe policy checks. This closes the merge and clean-CI gate, not the runtime, device, package, signing, or publication Gates.
+- The repository already contains the chronological M0–M4 implementation, review, failure, and verification record below. A separate current snapshot now lives in `docs/release/PRE_RELEASE_STATUS.md` so release state does not depend on chat history.
+
+### Directly executable final acceptance
+
+- The available host can run the exact merged-source build/test/security revalidation, final no-account GUI acceptance, live-WebView/resource measurements, true-exit residue checks, BMC and Microsoft Forms system-browser launches, and the Windows 11 x64 keyboard/window/accessibility pass that does not require another architecture or OS.
+- The current Windows 11 x64 host reports build `10.0.26200.9168` on AMD64. Light/dark, keyboard focus, minimum-window, and app-level UI Automation can be checked directly. Narrator, High Contrast, reduced-motion/transparency, 150%/200% DPI, and text scaling require deliberately changing user-visible Windows settings and recording human visual results; structural resources or cross-compilation alone do not close those checks.
+
+### Remaining external or separately authorized Gates
+
+- Windows 10 x64 and Windows 11 ARM64 require matching devices or controlled virtual environments. x86 remains a CI/build target only and is not part of the agreed first Public Beta support claim.
+- Provider login/session, real-provider cache/reset/download, authentication popup, newly observed purchase route, and Grok/X authentication-boundary evidence require approved test accounts and privacy-safe manual observation. No prompt, response, DOM, credential, cookie, token, payment data, or network-trace collection is permitted.
+- Exact install/update/rollback/startup/uninstall acceptance requires a clean package-test user or machine because this host previously returned `0x80073CFB` for an unidentified development registration. Final Store identity, publisher, versioning, package dependency model, signing/provenance, Microsoft Forms administration, public privacy/support surfaces, and publication remain separate owner or release decisions.
+
 ## 2026-08-26 — no-account runtime acceptance and Microsoft Forms feedback
 
 ### Implemented and reviewed

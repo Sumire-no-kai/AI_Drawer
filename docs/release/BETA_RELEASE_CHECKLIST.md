@@ -2,6 +2,8 @@
 
 This checklist separates an internal package build from a publishable Public Beta. Every unchecked item is a release blocker unless the PRD is explicitly revised.
 
+Current merged baseline, directly executable checks, external-device/account Gates, and the agreed first-Beta platform scope are recorded in [PRE_RELEASE_STATUS.md](PRE_RELEASE_STATUS.md). The first-Beta runtime target is Windows 10 x64, Windows 11 x64, and Windows 11 ARM64; x86 remains build/inspection coverage only.
+
 ## Product and evidence gates
 
 - [x] Native MVP settings cover default provider, configurable shortcut, packaged startup preference, tray/exit behavior, always-on-top, and bounded window placement persistence.
