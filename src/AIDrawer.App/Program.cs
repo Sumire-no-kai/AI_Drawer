@@ -124,9 +124,103 @@ public static class Program
 
     private static void OnActivated(object? sender, AppActivationArguments args)
     {
+#if DEBUG
+        if (TryHandleIsolatedTestActivation())
+        {
+            return;
+        }
+#endif
         if (args.Kind != ExtendedActivationKind.StartupTask)
         {
             App.ActivateExistingWindow();
+        }
+    }
+
+#if DEBUG
+    private static bool TryHandleIsolatedTestActivation()
+    {
+        var testDataRoot = Environment.GetEnvironmentVariable("AI_DRAWER_TEST_DATA_ROOT");
+        if (!IsIsolatedRuntimeAcceptanceRoot(testDataRoot))
+        {
+            return false;
+        }
+
+        var markerPath = Path.Combine(Path.GetFullPath(testDataRoot!), "profile-action.acceptance");
+        try
+        {
+            if (!File.Exists(markerPath))
+            {
+                return false;
+            }
+
+            if (new FileInfo(markerPath).Length > 32)
+            {
+                File.Delete(markerPath);
+                return false;
+            }
+
+            var action = File.ReadAllText(markerPath).Trim();
+            File.Delete(markerPath);
+            if (action is not ("clear-cache" or "reset-provider" or "reset-all"))
+            {
+                return false;
+            }
+
+            App.RunProfileActionForAcceptance(action, testDataRoot!);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+#endif
+
+    internal static bool IsIsolatedRuntimeAcceptanceRoot(string? testDataRoot)
+    {
+        if (string.IsNullOrWhiteSpace(testDataRoot) || !Path.IsPathFullyQualified(testDataRoot))
+        {
+            return false;
+        }
+
+        try
+        {
+            var fullRoot = Path.GetFullPath(testDataRoot).TrimEnd(
+                Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar);
+            var tempRoot = Path.GetFullPath(Path.GetTempPath()).TrimEnd(
+                Path.DirectorySeparatorChar,
+                Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            if (!fullRoot.StartsWith(tempRoot, StringComparison.OrdinalIgnoreCase)
+                || !Path.GetFileName(fullRoot).StartsWith(
+                    "AI-Drawer-RuntimeAcceptance-",
+                    StringComparison.Ordinal)
+                || !Directory.Exists(fullRoot))
+            {
+                return false;
+            }
+
+            return (File.GetAttributes(fullRoot) & FileAttributes.ReparsePoint) == 0;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        catch (NotSupportedException)
+        {
+            return false;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
         }
     }
 

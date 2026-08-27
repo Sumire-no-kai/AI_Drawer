@@ -39,6 +39,11 @@ public sealed partial class MainWindow : Window
         _shell.ShowAndActivate();
     }
 
+#if DEBUG
+    internal Task<string> RunProfileActionForAcceptanceAsync(string action) =>
+        WorkspacePage.RunProfileActionForAcceptanceAsync(action);
+#endif
+
     internal async void ExitApplication()
     {
         if (_exitInProgress)

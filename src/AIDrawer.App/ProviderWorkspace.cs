@@ -65,6 +65,8 @@ internal sealed class ProviderWorkspace : IDisposable
 
     internal event EventHandler? OperationCompleted;
 
+    internal event EventHandler<uint>? BrowserProcessAvailable;
+
     internal ProviderDefinition Provider { get; }
 
     internal string WorkspaceId { get; }
@@ -538,6 +540,7 @@ internal sealed class ProviderWorkspace : IDisposable
         };
 
         core.ProcessFailed += (_, args) => HandleProcessFailed(core, args);
+        BrowserProcessAvailable?.Invoke(this, core.BrowserProcessId);
     }
 
     private async Task OpenProviderPopupAsync(

@@ -1,6 +1,7 @@
 using AIDrawer.Core;
 
 var failures = new List<string>();
+var completedCheckCount = 0;
 
 Check("locator strips query and fragment", () =>
 {
@@ -299,6 +300,25 @@ Check("download policy sanitizes a proposed path before collision handling", () 
         DownloadPolicy.CreateNonExistingPath("C:\\Downloads", "CON.txt", _ => false));
 });
 
+Check("download policy treats an existing directory name as a collision", () =>
+{
+    var root = Path.Combine(Path.GetTempPath(), $"AI-Drawer-DownloadPolicy-{Guid.NewGuid():N}");
+    Directory.CreateDirectory(Path.Combine(root, "report.pdf"));
+    try
+    {
+        Equal(
+            Path.Combine(root, "report (2).pdf"),
+            DownloadPolicy.CreateNonExistingPath(
+                root,
+                "report.pdf",
+                path => File.Exists(path) || Directory.Exists(path)));
+    }
+    finally
+    {
+        Directory.Delete(root, recursive: true);
+    }
+});
+
 Check("window placement policy clamps an off-screen oversized placement", () =>
 {
     var result = WindowPlacementPolicy.ClampToWorkArea(
@@ -411,7 +431,7 @@ if (failures.Count > 0)
     return 1;
 }
 
-Console.WriteLine("42 core policy checks passed.");
+Console.WriteLine($"{completedCheckCount} core policy checks passed.");
 return 0;
 
 void Check(string name, Action test)
@@ -419,6 +439,7 @@ void Check(string name, Action test)
     try
     {
         test();
+        completedCheckCount++;
     }
     catch (Exception exception)
     {

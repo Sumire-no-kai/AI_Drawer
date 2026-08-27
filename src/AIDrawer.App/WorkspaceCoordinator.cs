@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using AIDrawer.Core;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -18,11 +19,14 @@ internal sealed class WorkspaceCoordinator : IDisposable
     private readonly CancellationTokenSource _lifetimeCancellation = new();
     private readonly Dictionary<string, ProviderWorkspace> _workspaces = new(StringComparer.Ordinal);
     private Task<CoreWebView2Environment>? _environmentTask;
+    private CoreWebView2Environment? _observedEnvironment;
+    private Process? _observedBrowserProcess;
     private WorkspaceLifecyclePolicy _lifecyclePolicy;
     private readonly DispatcherTimer _lifecycleTimer = new() { Interval = TimeSpan.FromSeconds(15) };
     private bool _disposed;
     private bool _windowIsVisible = true;
     private bool _browserRecoveryInProgress;
+    private bool _profileCleanupInProgress;
     private string? _capacityBlockedWorkspaceId;
 
     internal WorkspaceCoordinator(
@@ -119,6 +123,7 @@ internal sealed class WorkspaceCoordinator : IDisposable
                 nextWorkspace.ProcessFailure += Workspace_ProcessFailure;
                 nextWorkspace.NavigationPromptRequested += Workspace_NavigationPromptRequested;
                 nextWorkspace.OperationCompleted += Workspace_OperationCompleted;
+                nextWorkspace.BrowserProcessAvailable += Workspace_BrowserProcessAvailable;
                 _workspaces.Add(workspaceId, nextWorkspace);
                 _host.Children.Add(nextWorkspace.View);
             }
@@ -239,6 +244,7 @@ internal sealed class WorkspaceCoordinator : IDisposable
             workspace.ProcessFailure -= Workspace_ProcessFailure;
             workspace.NavigationPromptRequested -= Workspace_NavigationPromptRequested;
             workspace.OperationCompleted -= Workspace_OperationCompleted;
+            workspace.BrowserProcessAvailable -= Workspace_BrowserProcessAvailable;
             workspace.Dispose();
             _host.Children.Remove(workspace.View);
         }
@@ -312,6 +318,8 @@ internal sealed class WorkspaceCoordinator : IDisposable
                 return null;
             }
 
+            _profileCleanupInProgress = true;
+            DetachObservedBrowserProcess();
             foreach (var workspace in _workspaces.Values)
             {
                 workspace.DisposeView();
@@ -329,6 +337,7 @@ internal sealed class WorkspaceCoordinator : IDisposable
         }
         finally
         {
+            _profileCleanupInProgress = false;
             _selectionLock.Release();
         }
     }
@@ -356,6 +365,8 @@ internal sealed class WorkspaceCoordinator : IDisposable
                 return null;
             }
 
+            _profileCleanupInProgress = true;
+            DetachObservedBrowserProcess();
             var affectedWorkspaces = _workspaces.Values.Where(candidate =>
                     string.Equals(candidate.Provider.Id, workspace.Provider.Id, StringComparison.Ordinal))
                 .ToArray();
@@ -379,6 +390,7 @@ internal sealed class WorkspaceCoordinator : IDisposable
         }
         finally
         {
+            _profileCleanupInProgress = false;
             _selectionLock.Release();
         }
     }
@@ -531,6 +543,8 @@ internal sealed class WorkspaceCoordinator : IDisposable
                 return;
             }
 
+            DetachObservedBrowserProcess();
+            DetachObservedEnvironment();
             _environmentTask = null;
             foreach (var workspace in _workspaces.Values.Where(workspace => workspace.IsLive).ToArray())
             {
@@ -667,13 +681,185 @@ internal sealed class WorkspaceCoordinator : IDisposable
         }
     }
 
-    private static async Task<CoreWebView2Environment> CreateEnvironmentAsync()
+    private async Task<CoreWebView2Environment> CreateEnvironmentAsync()
     {
         Directory.CreateDirectory(UserDataRoot);
-        return await CoreWebView2Environment.CreateWithOptionsAsync(
+        var environment = await CoreWebView2Environment.CreateWithOptionsAsync(
             null,
             UserDataRoot,
             new CoreWebView2EnvironmentOptions());
+        environment.BrowserProcessExited += Environment_BrowserProcessExited;
+        _observedEnvironment = environment;
+        return environment;
+    }
+
+    private void Environment_BrowserProcessExited(
+        object? sender,
+        CoreWebView2BrowserProcessExitedEventArgs args)
+    {
+        if (_disposed
+            || sender is not CoreWebView2Environment exitedEnvironment
+            || !ReferenceEquals(exitedEnvironment, _observedEnvironment)
+            || _profileCleanupInProgress
+            || ActiveWorkspace is null)
+        {
+            return;
+        }
+
+        _host.DispatcherQueue.TryEnqueue(() =>
+            RecoverBrowserProcessAfterExitFromQueueAsync(exitedEnvironment));
+    }
+
+    private async void RecoverBrowserProcessAfterExitFromQueueAsync(
+        CoreWebView2Environment exitedEnvironment)
+    {
+        try
+        {
+            for (var attempt = 0; _browserRecoveryInProgress && attempt < 50; attempt++)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(100), _lifetimeCancellation.Token);
+            }
+
+            if (_disposed
+                || _browserRecoveryInProgress
+                || _observedEnvironment is not null
+                    && !ReferenceEquals(_observedEnvironment, exitedEnvironment))
+            {
+                return;
+            }
+
+            await RecoverBrowserProcessAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            // Shutdown cancels a queued browser-environment recovery.
+        }
+        catch
+        {
+            // The active workspace reports environment failures through the normal recovery UI.
+        }
+    }
+
+    private void Workspace_BrowserProcessAvailable(object? sender, uint browserProcessId)
+    {
+        if (_disposed || browserProcessId > int.MaxValue)
+        {
+            return;
+        }
+
+        var processId = (int)browserProcessId;
+        if (_observedBrowserProcess is { Id: var observedProcessId } && observedProcessId == processId)
+        {
+            return;
+        }
+
+        DetachObservedBrowserProcess();
+        try
+        {
+            var process = Process.GetProcessById(processId);
+            process.EnableRaisingEvents = true;
+            process.Exited += ObservedBrowserProcess_Exited;
+            _observedBrowserProcess = process;
+            if (process.HasExited)
+            {
+                _host.DispatcherQueue.TryEnqueue(() =>
+                    RecoverBrowserProcessAfterObservedExitFromQueueAsync(process));
+            }
+        }
+        catch (ArgumentException)
+        {
+            // The browser exited between WebView creation and watcher attachment.
+            _host.DispatcherQueue.TryEnqueue(RecoverBrowserProcessFromMissingWatcherAsync);
+        }
+        catch (InvalidOperationException)
+        {
+            // The browser exited between WebView creation and watcher attachment.
+            _host.DispatcherQueue.TryEnqueue(RecoverBrowserProcessFromMissingWatcherAsync);
+        }
+    }
+
+    private void ObservedBrowserProcess_Exited(object? sender, EventArgs args)
+    {
+        if (sender is Process exitedProcess)
+        {
+            _host.DispatcherQueue.TryEnqueue(() =>
+                RecoverBrowserProcessAfterObservedExitFromQueueAsync(exitedProcess));
+        }
+    }
+
+    private async void RecoverBrowserProcessAfterObservedExitFromQueueAsync(Process exitedProcess)
+    {
+        try
+        {
+            for (var attempt = 0; _browserRecoveryInProgress && attempt < 50; attempt++)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(100), _lifetimeCancellation.Token);
+            }
+
+            if (_disposed
+                || _profileCleanupInProgress
+                || _browserRecoveryInProgress
+                || _observedBrowserProcess is not null
+                    && !ReferenceEquals(_observedBrowserProcess, exitedProcess)
+                || ActiveWorkspace is null)
+            {
+                return;
+            }
+
+            await RecoverBrowserProcessAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            // Shutdown cancels a queued browser-process recovery.
+        }
+        catch
+        {
+            // The active workspace reports environment failures through the normal recovery UI.
+        }
+    }
+
+    private async void RecoverBrowserProcessFromMissingWatcherAsync()
+    {
+        try
+        {
+            if (_disposed || _profileCleanupInProgress || ActiveWorkspace is null)
+            {
+                return;
+            }
+
+            await RecoverBrowserProcessAsync();
+        }
+        catch (OperationCanceledException)
+        {
+            // Shutdown cancels a queued browser-process recovery.
+        }
+        catch
+        {
+            // The active workspace reports environment failures through the normal recovery UI.
+        }
+    }
+
+    private void DetachObservedBrowserProcess()
+    {
+        if (_observedBrowserProcess is not { } process)
+        {
+            return;
+        }
+
+        process.Exited -= ObservedBrowserProcess_Exited;
+        process.Dispose();
+        _observedBrowserProcess = null;
+    }
+
+    private void DetachObservedEnvironment()
+    {
+        if (_observedEnvironment is not { } environment)
+        {
+            return;
+        }
+
+        environment.BrowserProcessExited -= Environment_BrowserProcessExited;
+        _observedEnvironment = null;
     }
 
     private void ThrowIfDisposed()
@@ -689,12 +875,15 @@ internal sealed class WorkspaceCoordinator : IDisposable
         }
 
         _disposed = true;
+        DetachObservedBrowserProcess();
+        DetachObservedEnvironment();
         _lifecycleTimer.Stop();
         _lifetimeCancellation.Cancel();
         foreach (var workspace in _workspaces.Values)
         {
             workspace.ProcessFailure -= Workspace_ProcessFailure;
             workspace.NavigationPromptRequested -= Workspace_NavigationPromptRequested;
+            workspace.BrowserProcessAvailable -= Workspace_BrowserProcessAvailable;
             workspace.Dispose();
         }
 
