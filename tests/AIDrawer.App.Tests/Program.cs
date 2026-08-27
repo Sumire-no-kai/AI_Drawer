@@ -549,10 +549,12 @@ try
                 {
                     var root = await WaitForMainWindowAsync(process, "support reminder window");
                     var title = await WaitForVisibleElementAsync(root, "Support independent development", "support reminder");
-                    var notNow = FindByName(root, "Not now")
-                        ?? throw new InvalidOperationException("The support reminder's Not now action was not found.");
-                    var never = FindByName(root, "Don't ask again")
+                    var never = FindButtonByName(root, "Don't ask again")
                         ?? throw new InvalidOperationException("The support reminder's permanent dismissal was not found.");
+                    var notNow = await WaitForVisibleButtonAsync(
+                        root,
+                        "Not now",
+                        "support reminder Not now action");
                     if (title.Current.BoundingRectangle.Width <= 0)
                     {
                         throw new InvalidOperationException("The visible support reminder had no UI Automation bounds.");
@@ -577,10 +579,13 @@ try
                             SupportReminderSnoozedUntilUtc: { } untilUtc,
                             SupportReminderSnoozedUntilMajorRelease: 2
                         }
-                        && untilUtc >= DateTimeOffset.UtcNow.AddDays(89)
-                        && FindByName(root, "Support independent development") is null,
+                        && untilUtc >= DateTimeOffset.UtcNow.AddDays(89),
                         TimeSpan.FromSeconds(20),
-                        "support reminder snooze persistence and dismissal");
+                        "support reminder snooze persistence");
+                    await WaitUntilAsync(
+                        () => !IsVisibleByName(root, "Support independent development"),
+                        TimeSpan.FromSeconds(10),
+                        "support reminder snooze dismissal");
                 }
                 finally
                 {
@@ -603,14 +608,19 @@ try
                 {
                     var root = await WaitForMainWindowAsync(process, "support dismissal window");
                     _ = await WaitForVisibleElementAsync(root, "Support independent development", "support reminder");
-                    var never = FindByName(root, "Don't ask again")
-                        ?? throw new InvalidOperationException("The support reminder's permanent dismissal was not found.");
+                    var never = await WaitForVisibleButtonAsync(
+                        root,
+                        "Don't ask again",
+                        "support reminder permanent dismissal");
                     ((InvokePattern)never.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
                     await WaitUntilAsync(
-                        () => TryReadSettings(settingsPath) is { SupportReminderDismissed: true }
-                            && FindByName(root, "Support independent development") is null,
+                        () => TryReadSettings(settingsPath) is { SupportReminderDismissed: true },
                         TimeSpan.FromSeconds(20),
-                        "permanent support reminder persistence and dismissal");
+                        "permanent support reminder persistence");
+                    await WaitUntilAsync(
+                        () => !IsVisibleByName(root, "Support independent development"),
+                        TimeSpan.FromSeconds(10),
+                        "permanent support reminder dismissal");
                 }
                 finally
                 {
@@ -746,8 +756,10 @@ try
                     TimeSpan.FromSeconds(5),
                     "restored provider layout");
                 AssertProviderChoicesCenteredAndVisible(root);
-                var feedbackButton = FindByName(root, "Feedback and support")
-                    ?? throw new InvalidOperationException("Feedback and support action was not found.");
+                var feedbackButton = await WaitForVisibleButtonAsync(
+                    root,
+                    "Feedback and support",
+                    "feedback and support action");
                 ((InvokePattern)feedbackButton.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
                 _ = await WaitForVisibleElementAsync(root, "Send feedback or report a bug", "feedback and support overlay");
                 var providerEvidence = FindButtonByName(root, "Report provider compatibility")
@@ -1000,6 +1012,25 @@ static AutomationElement? FindByName(AutomationElement root, string name)
     return root.FindFirst(TreeScope.Descendants, condition);
 }
 
+static bool IsVisibleByName(AutomationElement root, string name)
+{
+    var element = FindByName(root, name);
+    if (element is null)
+    {
+        return false;
+    }
+
+    try
+    {
+        var bounds = element.Current.BoundingRectangle;
+        return !element.Current.IsOffscreen && bounds.Width > 0 && bounds.Height > 0;
+    }
+    catch (ElementNotAvailableException)
+    {
+        return false;
+    }
+}
+
 static AutomationElement? FindButtonByName(AutomationElement root, string name)
 {
     var condition = new AndCondition(
@@ -1114,6 +1145,43 @@ static async Task<AutomationElement> WaitForVisibleElementAsync(
         TimeSpan.FromSeconds(15),
         description);
     return element!;
+}
+
+static async Task<AutomationElement> WaitForVisibleButtonAsync(
+    AutomationElement root,
+    string name,
+    string description)
+{
+    var element = FindButtonByName(root, name)
+        ?? throw new InvalidOperationException($"{description} was not found.");
+    if (element.TryGetCurrentPattern(ScrollItemPattern.Pattern, out var pattern))
+    {
+        ((ScrollItemPattern)pattern).ScrollIntoView();
+    }
+
+    AutomationElement? visibleElement = null;
+    await WaitUntilAsync(
+        () =>
+        {
+            visibleElement = FindButtonByName(root, name);
+            if (visibleElement is null)
+            {
+                return false;
+            }
+
+            try
+            {
+                var bounds = visibleElement.Current.BoundingRectangle;
+                return !visibleElement.Current.IsOffscreen && bounds.Width > 0 && bounds.Height > 0;
+            }
+            catch (ElementNotAvailableException)
+            {
+                return false;
+            }
+        },
+        TimeSpan.FromSeconds(15),
+        description);
+    return visibleElement!;
 }
 
 static async Task StopTestAppAsync(Process process, string appPath)
