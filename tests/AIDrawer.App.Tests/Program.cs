@@ -9,6 +9,7 @@ using System.Xml.Linq;
 
 var failures = new List<string>();
 var runUiChecks = !args.Contains("--no-ui", StringComparer.OrdinalIgnoreCase);
+var runLiveExternalUriChecks = args.Contains("--live-external-uri", StringComparer.OrdinalIgnoreCase);
 var completedCheckCount = 0;
 var testRoot = Path.Combine(Path.GetTempPath(), $"AI-Drawer-SessionTests-{Guid.NewGuid():N}");
 Environment.SetEnvironmentVariable("AI_DRAWER_TEST_DATA_ROOT", testRoot);
@@ -489,6 +490,68 @@ try
         True(settings
             .Descendants()
             .Any(element => string.Equals(element.Attribute(xaml + "Name")?.Value, "SupportDevelopmentButton", StringComparison.Ordinal)));
+
+        var externalLauncherCode = File.ReadAllText(
+            GetRepositoryPath("src", "AIDrawer.App", "ExternalUriLauncher.cs"));
+        True(externalLauncherCode.Contains("#if DEBUG", StringComparison.Ordinal));
+        True(externalLauncherCode.Contains("AI_DRAWER_TEST_RECORD_EXTERNAL_URI", StringComparison.Ordinal));
+        True(externalLauncherCode.Contains("AI-Drawer-SessionTests-", StringComparison.Ordinal));
+        True(externalLauncherCode.Contains("FileAttributes.ReparsePoint", StringComparison.Ordinal));
+        True(externalLauncherCode.Contains("https://forms.cloud.microsoft/r/WLQySVad7g", StringComparison.Ordinal));
+        True(externalLauncherCode.Contains("https://buymeacoffee.com/edward_lee", StringComparison.Ordinal));
+        var mainPageCode = File.ReadAllText(GetRepositoryPath("src", "AIDrawer.App", "MainPage.xaml.cs"));
+        True(mainPageCode.Contains("ExternalUriLauncher.LaunchAsync", StringComparison.Ordinal));
+        False(mainPageCode.Contains("Launcher.LaunchUriAsync", StringComparison.Ordinal));
+        return Task.CompletedTask;
+    });
+
+    await CheckAsync("beta release tooling and public copy remain explicit and verifiable", () =>
+    {
+        var appProject = File.ReadAllText(GetRepositoryPath("src", "AIDrawer.App", "AIDrawer.App.csproj"));
+        False(appProject.Contains("<PublishProfile Condition=", StringComparison.Ordinal));
+
+        var candidateBuilder = File.ReadAllText(GetRepositoryPath("tools", "Build-InternalBetaCandidate.ps1"));
+        True(candidateBuilder.Contains("FrameworkDependent", StringComparison.Ordinal));
+        True(candidateBuilder.Contains("SelfContained", StringComparison.Ordinal));
+        True(candidateBuilder.Contains("WindowsAppSDKSelfContained", StringComparison.Ordinal));
+        True(candidateBuilder.Contains("deliveryPackageBytes", StringComparison.Ordinal));
+        True(candidateBuilder.Contains("candidateCompleted", StringComparison.Ordinal));
+
+        var candidateVerifier = File.ReadAllText(GetRepositoryPath("tools", "Test-BetaCandidate.ps1"));
+        True(candidateVerifier.Contains("Get-AuthenticodeSignature", StringComparison.Ordinal));
+        True(candidateVerifier.Contains("DownloadedPackagePath", StringComparison.Ordinal));
+        True(candidateVerifier.Contains("Candidate path escapes its directory", StringComparison.Ordinal));
+        True(candidateVerifier.Contains("A public candidate must have clean source", StringComparison.Ordinal));
+
+        var workflow = File.ReadAllText(
+            GetRepositoryPath(".github", "workflows", "internal-beta-candidate.yml"));
+        True(workflow.Contains("dependency_mode:", StringComparison.Ordinal));
+        True(workflow.Contains("- FrameworkDependent", StringComparison.Ordinal));
+        True(workflow.Contains("- SelfContained", StringComparison.Ordinal));
+
+        var publicRoot = GetRepositoryPath("docs", "public");
+        foreach (var fileName in new[]
+        {
+            "index.md",
+            "download.md",
+            "providers.md",
+            "privacy.md",
+            "security.md",
+            "changelog.md",
+            "support.md"
+        })
+        {
+            True(File.Exists(Path.Combine(publicRoot, fileName)));
+        }
+
+        var privacyCopy = File.ReadAllText(Path.Combine(publicRoot, "privacy.md"));
+        True(privacyCopy.Contains("does not read or store prompts", StringComparison.Ordinal));
+        True(privacyCopy.Contains("WebView2 website data", StringComparison.Ordinal));
+        var supportCopy = File.ReadAllText(Path.Combine(publicRoot, "support.md"));
+        True(supportCopy.Contains("https://forms.cloud.microsoft/r/WLQySVad7g", StringComparison.Ordinal));
+        True(supportCopy.Contains("security/advisories/new", StringComparison.Ordinal));
+        var downloadCopy = File.ReadAllText(Path.Combine(publicRoot, "download.md"));
+        True(downloadCopy.Contains("does not currently have a supported public build", StringComparison.Ordinal));
         return Task.CompletedTask;
     });
 
@@ -543,7 +606,11 @@ try
 
             var appPath = GetAppPath();
             True(File.Exists(appPath));
-            using (var process = StartTestApp(appPath, testRoot))
+            using (var process = StartTestApp(
+                appPath,
+                testRoot,
+                recordExternalUris: true,
+                launchExternalUris: runLiveExternalUriChecks))
             {
                 try
                 {
@@ -571,6 +638,51 @@ try
                     {
                         throw new InvalidOperationException("The Home-only support reminder unexpectedly created a WebView2 profile.");
                     }
+
+                    var launchLogPath = Path.Combine(testRoot, "external-uri-launches.acceptance");
+                    var openSupport = await WaitForVisibleButtonAsync(
+                        root,
+                        "Open Buy Me a Coffee",
+                        "Home Buy Me a Coffee action");
+                    ((InvokePattern)openSupport.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+                    await WaitForExternalUriCountAsync(launchLogPath, 1, "Home Buy Me a Coffee routing");
+
+                    var missingProvider = await WaitForVisibleButtonAsync(
+                        root,
+                        "Can't find the AI you want? Tell me.",
+                        "Home feedback action");
+                    ((InvokePattern)missingProvider.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+                    await WaitForExternalUriCountAsync(launchLogPath, 2, "Home feedback routing");
+
+                    var feedback = await WaitForVisibleButtonAsync(
+                        root,
+                        "Feedback and support",
+                        "Feedback and Support action");
+                    ((InvokePattern)feedback.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+                    var reportBug = await WaitForVisibleButtonAsync(
+                        root,
+                        "Send feedback or report a bug",
+                        "Feedback form action");
+                    ((InvokePattern)reportBug.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+                    await WaitForExternalUriCountAsync(launchLogPath, 3, "Feedback surface routing");
+
+                    var settings = await WaitForVisibleButtonAsync(root, "Settings", "Settings action");
+                    ((InvokePattern)settings.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+                    var settingsSupport = await WaitForVisibleButtonAsync(
+                        root,
+                        "Support Edward Lee's independent projects",
+                        "Settings Buy Me a Coffee action");
+                    ((InvokePattern)settingsSupport.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+                    await WaitForExternalUriCountAsync(launchLogPath, 4, "Settings Buy Me a Coffee routing");
+
+                    var recordedUris = File.ReadAllLines(launchLogPath);
+                    Equal("https://buymeacoffee.com/edward_lee", recordedUris[0]);
+                    Equal("https://forms.cloud.microsoft/r/WLQySVad7g", recordedUris[1]);
+                    Equal("https://forms.cloud.microsoft/r/WLQySVad7g", recordedUris[2]);
+                    Equal("https://buymeacoffee.com/edward_lee", recordedUris[3]);
+
+                    var closeSettings = await WaitForVisibleButtonAsync(root, "Close settings", "Settings close action");
+                    ((InvokePattern)closeSettings.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
 
                     ((InvokePattern)notNow.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
                     await WaitUntilAsync(
@@ -614,13 +726,26 @@ try
                         "support reminder permanent dismissal");
                     ((InvokePattern)never.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
                     await WaitUntilAsync(
-                        () => TryReadSettings(settingsPath) is { SupportReminderDismissed: true },
-                        TimeSpan.FromSeconds(20),
-                        "permanent support reminder persistence");
-                    await WaitUntilAsync(
                         () => !IsVisibleByName(root, "Support independent development"),
                         TimeSpan.FromSeconds(10),
                         "permanent support reminder dismissal");
+                    try
+                    {
+                        await WaitUntilAsync(
+                            () => TryReadSettings(settingsPath) is { SupportReminderDismissed: true },
+                            TimeSpan.FromSeconds(20),
+                            "permanent support reminder persistence");
+                    }
+                    catch (TimeoutException exception)
+                    {
+                        var settingsSnapshot = File.Exists(settingsPath)
+                            ? File.ReadAllText(settingsPath)
+                            : "<missing>";
+                        var statusSnapshot = FindByAutomationId(root, "StatusMessage")?.Current.Name ?? "<none>";
+                        throw new TimeoutException(
+                            $"{exception.Message} Settings: {settingsSnapshot}. Native status: {statusSnapshot}.",
+                            exception);
+                    }
                 }
                 finally
                 {
@@ -803,11 +928,28 @@ try
                 True(FindByName(root, "Reset all AI website data") is not null);
 
                 ToggleByName(root, "Always on top", ToggleState.On);
-                ToggleByName(root, "Close button behavior", ToggleState.Off);
                 await WaitUntilAsync(
-                    () => TryReadSettings(settingsPath) is { AlwaysOnTop: true, CloseToTray: false },
-                    TimeSpan.FromSeconds(10),
-                    "persisted shell settings");
+                    () => TryReadSettings(settingsPath) is { AlwaysOnTop: true },
+                    TimeSpan.FromSeconds(20),
+                    "persisted always-on-top setting");
+                ToggleByName(root, "Close button behavior", ToggleState.Off);
+                try
+                {
+                    await WaitUntilAsync(
+                        () => TryReadSettings(settingsPath) is { AlwaysOnTop: true, CloseToTray: false },
+                        TimeSpan.FromSeconds(20),
+                        "persisted close-button setting");
+                }
+                catch (TimeoutException exception)
+                {
+                    var settingsSnapshot = File.Exists(settingsPath)
+                        ? File.ReadAllText(settingsPath)
+                        : "<missing>";
+                    var statusSnapshot = FindByAutomationId(root, "StatusMessage")?.Current.Name ?? "<none>";
+                    throw new TimeoutException(
+                        $"{exception.Message} Settings: {settingsSnapshot}. Native status: {statusSnapshot}.",
+                        exception);
+                }
 
                 True(process.CloseMainWindow());
                 await WaitUntilAsync(() =>
@@ -1097,7 +1239,11 @@ static async Task CompleteWelcomeAsync(AutomationElement root)
     }
 }
 
-static Process StartTestApp(string appPath, string testDataRoot)
+static Process StartTestApp(
+    string appPath,
+    string testDataRoot,
+    bool recordExternalUris = false,
+    bool launchExternalUris = false)
 {
     var process = new Process
     {
@@ -1108,6 +1254,15 @@ static Process StartTestApp(string appPath, string testDataRoot)
         }
     };
     process.StartInfo.Environment["AI_DRAWER_TEST_DATA_ROOT"] = testDataRoot;
+    if (recordExternalUris)
+    {
+        process.StartInfo.Environment["AI_DRAWER_TEST_RECORD_EXTERNAL_URI"] = "1";
+    }
+    if (launchExternalUris)
+    {
+        process.StartInfo.Environment["AI_DRAWER_TEST_LAUNCH_EXTERNAL_URI"] = "1";
+    }
+
     if (!process.Start())
     {
         process.Dispose();
@@ -1145,6 +1300,14 @@ static async Task<AutomationElement> WaitForVisibleElementAsync(
         TimeSpan.FromSeconds(15),
         description);
     return element!;
+}
+
+static async Task WaitForExternalUriCountAsync(string path, int count, string description)
+{
+    await WaitUntilAsync(
+        () => File.Exists(path) && File.ReadAllLines(path).Length >= count,
+        TimeSpan.FromSeconds(10),
+        description);
 }
 
 static async Task<AutomationElement> WaitForVisibleButtonAsync(

@@ -466,7 +466,7 @@ public sealed partial class MainPage : Page
     {
         try
         {
-            if (!await Launcher.LaunchUriAsync(uri))
+            if (!await ExternalUriLauncher.LaunchAsync(uri))
             {
                 ShowStatus(
                     "Link could not be opened",
@@ -2100,7 +2100,7 @@ public sealed partial class MainPage : Page
 
         try
         {
-            if (!await Launcher.LaunchUriAsync(SupportUri))
+            if (!await ExternalUriLauncher.LaunchAsync(SupportUri))
             {
                 ShowStatus(
                     "Support page could not be opened",

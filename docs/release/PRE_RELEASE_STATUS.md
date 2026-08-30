@@ -1,16 +1,16 @@
 # Public Beta pre-release status
 
-Last verified: 2026-08-27
+Last verified: 2026-08-30
 
 This is the durable current-state summary for the first AI Drawer Public Beta. It complements the chronological development log and the normative release checklist. A source change, passing build, runtime result, package result, device result, and publication result are separate evidence Gates.
 
 ## Current baseline
 
-- `master` commit: `0191ee5e16bede4f0da9dbefd0b9d3a6713034c9`
-- Merged work: PR #18, reviewed head `cd925b2b2d49bb0c3cc7595f51dabe75bd9d75a6`
-- Post-merge CI: run `33037886187`; x64, x86, ARM64, formatting, and compatibility/privacy-safe policy jobs passed
+- `master` commit: `a4bc03a1d15041aa785513bc0bdc67d172a1ae94`
+- Latest merged work: PR #19, reviewed head `bb7699a`; the merge contains the release-status refresh and stabilized acceptance assertions
+- Post-merge CI: run `33064037373`; x64, x86, ARM64, formatting, and compatibility/privacy-safe policy jobs all passed on the exact master commit
 - Public artifact: none; inspected candidates remain unsigned internal evidence and must not be distributed to end users
-- Current-host no-account source/runtime acceptance is complete and recorded in `docs/testing/HOST_ACCEPTANCE_2026-08-27.md`. Planning estimate only: application implementation about 92%, code-freeze readiness about 88%, Public Beta readiness about 65–70%. These percentages do not override an unchecked release Gate.
+- Current-host no-account source/runtime acceptance is complete and recorded in `docs/testing/HOST_ACCEPTANCE_2026-08-27.md`. The current release-hardening branch adds external-link launch evidence, explicit package-mode comparison, a post-build verifier, and draft public-surface copy; it is not merged or public evidence until its PR and CI complete. Planning estimate only: application implementation about 94%, code-freeze readiness about 90%, Public Beta readiness about 70–75%. These percentages do not override an unchecked release Gate.
 
 ## First Beta platform scope
 
@@ -29,7 +29,9 @@ Do not claim all serviced Windows 10 editions, LTSC 2019, or a broad Windows ran
 2. Fast and five-minute no-account GUI acceptance is complete, including cold start, single instance, four-workspace pressure, Keep active, grace-period convergence, workspace restoration, Renderer/GPU/Browser recovery, cache/reset APIs, tray, shortcut, second launch, exact Exit, and zero process/profile residue.
 3. One-host cold-start, memory, and WebView2 process measurements are recorded without extrapolation: 8 processes at burst, 7 after grace expiry, and 6 at stable pre-fault state.
 4. Light/150% DPI, minimum-window, keyboard/focus, and app-level UI Automation pass. The same suite exits successfully under temporary Dark, 200% text, reduced-motion, and transparency-off settings, with the original settings restored afterward.
-5. Fixed BMC and Forms URL contracts are source- and policy-tested. The user-visible system-browser launch remains a final manual interaction check so automated acceptance does not open external pages or inspect an existing browser profile.
+5. Fixed BMC and Forms URL contracts pass source, record-only UI Automation, and one explicit live system-browser launch run from Home, Feedback & Support, and Settings. The live run opened two fixed BMC and two fixed Forms destinations and recorded only Windows' successful launch result; it did not inspect browser tabs, accounts, or page content.
+6. Framework-dependent and self-contained x64/ARM64 candidates build with explicit dependency properties and pass independent reinspection. The size/dependency comparison is recorded in `PACKAGING_MODE_EVIDENCE_2026-08-30.md`; it informs but does not decide the public packaging model.
+7. Reviewed static copy sources now cover `/`, `/download`, `/providers`, `/privacy`, `/security`, `/changelog`, and `/support`, plus a Store listing draft. They are source material only and are not deployed public pages.
 
 ## Gates that need accounts, another environment, or owner action
 
@@ -48,8 +50,8 @@ Do not claim all serviced Windows 10 editions, LTSC 2019, or a broad Windows ran
 ### Package and release evidence
 
 - Use a clean package-test user or machine for exact 1.0.0.0 install, 1.0.0.1 update, startup registration, rollback behavior, true exit, uninstall, and data-retention decisions. Do not delete the unidentified registration that caused `0x80073CFB` on the current host.
-- Approve the public product name, package identity, publisher, version scheme, framework-dependent versus self-contained model, Store/direct-distribution route, and signing/provenance process.
-- Verify Microsoft Forms ownership, notifications, retention, privacy wording, and monitoring. Publish consistent privacy, security, provider-status, independence, unofficial-product, session-data, purchase-boundary, support, and changelog surfaces.
+- Approve the public product name, package identity, publisher, version scheme, framework-dependent versus self-contained model, Store/direct-distribution route, and signing/provenance process. The recorded package-mode comparison recommends self-contained for a simple zero-budget GitHub tester artifact and keeps framework-dependent credible for Store distribution, pending exact-channel tests.
+- Verify Microsoft Forms ownership, notifications, retention, privacy wording, and monitoring. Deploy the reviewed privacy, security, provider-status, independence, unofficial-product, session-data, purchase-boundary, support, and changelog copy on the independent website.
 - Test the exact signed bytes intended for publication, record certificate chain and SHA-256, create release notes and a source tag, publish first as a prerelease, then download and repeat checksum/install/launch/uninstall validation.
 
 ## Open security findings
@@ -60,6 +62,10 @@ Standard scan `50e49bc8-acaa-4684-9639-5fbd29f91623` at `c243c16` covered 108/10
 2. Grok currently permits the full exact `x.com` application origin pending privacy-safe evidence of the minimum authentication route.
 
 Both require focused account/runtime evidence and regression vectors for top-level, frame, and popup navigation. Native warnings and strict origin checks mitigate but do not close them.
+
+## Open repository maintenance
+
+- Dependabot PR #16 proposes the pinned `actions/checkout` v7.0.1 commit. Its original five CI jobs passed, and the pinned commit matches the official v7.0.1 release, but the PR base predates current master and GitHub currently reports mergeability as unknown. Refresh and re-run it after this release-hardening branch lands; do not merge the stale result as current evidence.
 
 ## Final go/no-go rule
 

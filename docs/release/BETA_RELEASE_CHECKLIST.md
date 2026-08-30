@@ -36,12 +36,12 @@ Current merged baseline, directly executable checks, external-device/account Gat
 - [x] The native Feedback & Support surface exposes the general Microsoft Forms route, the bounded public provider-evidence route, build information, and the distinct private security-reporting route without creating a provider WebView.
 - [x] The local BMC reminder policy is deterministic, becomes count-eligible at seven successful workspace opens but never during the first seven days, supports permanent dismissal, and requires both 90 days and a later major release after `Not now`.
 - [x] The BMC reminder placement, disclosure, keyboard focusability, `Not now`, and `Don't ask again` behavior pass isolated UI Automation on the native Home surface without creating a provider WebView.
-- [ ] The reviewed BMC HTTPS destination opens in the system browser from both Home and Settings; this external-browser launch remains intentionally unexercised in automated checks.
+- [x] The reviewed BMC HTTPS destination opens through Windows' system-browser launcher from both Home and Settings. One explicit live UI Automation run recorded successful Windows launch results without inspecting browser tabs, accounts, or content; the normal suite remains record-only to avoid opening pages on every run.
 
 ## Release publication
 
 - [x] CI passes from a clean checkout with the pinned SDK on the reviewed merged `master` commit.
-- [x] The internal unsigned-candidate tool verifies its package architecture, disabled startup-task declaration, reviewed capability set, unsigned state, private-key absence, and SHA-256 metadata.
+- [x] The internal unsigned-candidate tool explicitly builds framework-dependent or self-contained modes and verifies architecture, disabled startup task, reviewed capability set, unsigned state, private-key absence, runtime/dependency metadata, byte totals, and SHA-256 for every emitted MSIX. A separate verifier reopens candidates and supports post-download hash equality checks.
 - [ ] The signed candidate is tested as the exact bytes intended for publication.
 - [ ] Release notes list verified changes, known limitations, supported environments, checksum, and rollback guidance.
 - [ ] A version tag points to the reviewed source commit.
