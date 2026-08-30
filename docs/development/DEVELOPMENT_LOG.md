@@ -2,6 +2,33 @@
 
 This is the durable development record for implementation decisions, verified behavior, limitations, and open work. It is not a release changelog. Planned behavior must not be presented as shipped or provider-compatible behavior.
 
+## 2026-08-30 — Beta release hardening and current-host closeout
+
+### Implemented and reviewed
+
+- Added a single native external-URI launcher for Feedback, provider evidence, private security reports, and Buy Me a Coffee. Release builds always use the Windows system-browser launcher. Debug acceptance recording recognizes only four fixed public HTTPS destinations, requires an existing generated non-reparse test root under the Windows temporary directory, and never records provider navigation, page content, account data, query data, or arbitrary URLs.
+- Expanded application coverage to 22 non-GUI and 26 full checks. Home and Settings BMC actions, Home and Feedback Microsoft Forms actions, provider/private-report actions, browser-launch return values, fixed URI contracts, and release-tooling structure are covered. One explicit acceptance run opened the four fixed browser destinations and recorded only Windows' successful launcher result; routine automation remains record-only.
+- Removed implicit publish-profile selection from the application project. Ordinary Release/MSIX builds now respect the requested framework-dependent mode, while the existing ARM64 self-contained publish remains explicit through `-p:PublishProfile=win-ARM64`.
+- Extended the internal candidate builder with explicit framework-dependent/self-contained modes, safe incomplete-output cleanup, runtime/dependency inspection, delivery-byte and per-MSIX checksum metadata, signature status, private-key rejection, and a schema-v2 candidate manifest. Added an independent verifier for containment, reparse points, checksums, identity, architecture, dependency mode, startup task, the `runFullTrust`-only capability contract, signatures, source state, and optional post-download equality.
+- Manual security review found that the first public-verifier draft accepted any valid Authenticode signer if the package and sidecars were replaced together. The verifier now fixes the identity to `AIDrawer.App` and fails closed for a public candidate unless the caller independently supplies the expected source commit, publisher, and signer-certificate thumbprint. A temporary public-metadata probe produced the required fail-closed error, its generated fixture was restored, and both clean internal evidence candidates still pass after this hardening.
+- Added undeployed source copy for the future website routes `/`, `/download`, `/providers`, `/privacy`, `/security`, `/changelog`, and `/support`, plus a Store-listing draft. These files intentionally state that no public download or deployment exists yet.
+
+### Verified evidence
+
+- Production x64, x86, and ARM64 Debug/Release builds, x64 Compatibility Lab Debug/Release, and x64 application-test Debug/Release passed with warnings as errors. Core passed 47/47; application tests passed 22/22 without UI and 26/26 with UI, including three consecutive full passes after separating asynchronous Settings persistence observations. All four maintained projects passed formatting verification.
+- Fresh four-project NuGet vulnerability audits reported no known vulnerable direct or transitive packages. Package references still match `THIRD_PARTY_NOTICES.md`; source secret/private-key pattern review found no repository credential material. All three PowerShell tools parsed successfully.
+- The fast no-account runtime passed 16/16 and the real five-minute run passed 20/20. Cold Home was 438 ms and 444 ms respectively. The full run observed 8 WebView2 processes at the four-workspace burst, 7 after the grace period, and 6 at stable pre-fault state; this proves process convergence on this host, not a general memory reduction. Keep active, ordinary inactive release, same-profile restoration, cache/reset APIs, Renderer/GPU/Browser recovery, tray, shortcut, single instance, exact Exit, and zero residual process/profile state passed.
+- Clean commit `e465ad06c5274d5b134671cdde12313881b79f29` produced and independently re-read an x64 self-contained candidate (`91,345,411` bytes, SHA-256 `1b09f4fa6f14c726f1e213e673a8ad9ca8fc9b58349948451d478af754dc799a`) and an ARM64 framework-dependent candidate (main package `29,017,979` bytes; five-MSIX delivery `158,601,767` bytes; SHA-256 `a285cf8569aa7aeab2e8744fbb416d3dc38f1c421f471cea45c3221f8107fc8a`). Both are intentionally unsigned internal evidence, not installable public releases.
+- Codex Security diff scan `85d2444c-7211-4be9-83ec-82bc53aeb3fe` completed against `a4bc03a1d15041aa785513bc0bdc67d172a1ae94...e465ad06c5274d5b134671cdde12313881b79f29`. Its native workbench closed both changed C# review items with no reportable finding. The scan was deliberately recorded as partial because the workbench inventory excluded PowerShell/workflow/document files; those files received the manual review and signer-pinning remediation described above.
+
+Detailed commands, reports, candidate-mode measurements, and remaining evidence boundaries are recorded in `docs/testing/HOST_ACCEPTANCE_2026-08-30.md` and `docs/release/PRE_RELEASE_STATUS.md`.
+
+### Remaining boundary
+
+- The existing two Low provider-policy findings remain open: exact observed non-Gemini purchase routes and the minimum Grok/X authentication boundary. They require privacy-safe account evidence and must not be closed by guessed paths.
+- Windows 10 x64, Windows 11 ARM64 hardware, provider-account matrices, live High Contrast/Narrator/200% display DPI, exact signed install/update/startup/rollback/uninstall, final identity/publisher/signing and package-mode decisions, Microsoft Forms administration, public website deployment, and exact prerelease publication remain owner/device/account Gates.
+- Dependabot PR #16 is still open and based on an older baseline. Its original CI was green and its pinned checkout commit matches the official v7.0.1 release, but it should be refreshed and re-run after this branch rather than treated as current merge evidence.
+
 ## 2026-08-27 — current-host final acceptance and security revalidation
 
 ### Completed evidence

@@ -522,6 +522,9 @@ try
         True(candidateVerifier.Contains("DownloadedPackagePath", StringComparison.Ordinal));
         True(candidateVerifier.Contains("Candidate path escapes its directory", StringComparison.Ordinal));
         True(candidateVerifier.Contains("A public candidate must have clean source", StringComparison.Ordinal));
+        True(candidateVerifier.Contains("ExpectedPublisher", StringComparison.Ordinal));
+        True(candidateVerifier.Contains("ExpectedSignerThumbprint", StringComparison.Ordinal));
+        True(candidateVerifier.Contains("Unexpected package identity", StringComparison.Ordinal));
 
         var workflow = File.ReadAllText(
             GetRepositoryPath(".github", "workflows", "internal-beta-candidate.yml"));

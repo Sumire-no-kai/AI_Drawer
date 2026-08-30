@@ -1,5 +1,13 @@
 # Security review record
 
+## 2026-08-30 release-hardening diff scan and manual pipeline review
+
+Codex Security diff scan `85d2444c-7211-4be9-83ec-82bc53aeb3fe` completed against immutable range `a4bc03a1d15041aa785513bc0bdc67d172a1ae94...e465ad06c5274d5b134671cdde12313881b79f29`. Its native inventory exposed and closed the two changed production C# files: the Debug-only external-URI acceptance launcher and the MainPage call-site migration. No reportable application finding was identified. The reviewed code keeps test behavior out of Release, accepts only four fixed HTTPS destinations, writes only fixed destination strings, requires an isolated temporary non-reparse test root, and leaves provider/external navigation on the existing native confirmation and sanitization boundary.
+
+The workbench did not expose changed PowerShell, workflow, project, test, or documentation files as review items, so the sealed scan explicitly records partial native coverage rather than claiming whole-diff automation. A separate manual review covered all 21 changed files. It found a release-chain weakness in the first draft of `tools/Test-BetaCandidate.ps1`: a future public candidate could pass with any valid Authenticode certificate when an attacker replaced the package and candidate-controlled sidecars together. Before review handoff, the verifier was hardened to require the fixed `AIDrawer.App` identity and independently supplied expected source commit, publisher, and signer-certificate thumbprint for public candidates. Parser checks, structural regression assertions, and both clean internal candidate reinspections pass after the change.
+
+This closes the newly discovered release-verifier weakness in the branch working tree. It does not choose or validate the eventual publisher/certificate, prove reproducible source-to-binary provenance, sign an artifact, or close the two existing Low provider-policy findings. Those remain separate release and account/runtime Gates.
+
 ## 2026-08-27 final current-host Standard scan
 
 Codex Security Standard scan `50e49bc8-acaa-4684-9639-5fbd29f91623` completed against immutable source revision `c243c166adee0bb98588a0c875e2ccf52e964c2e`. It closed 108/108 tracked-file review receipts with an independent baseline audit, an architecture/threat-model audit, and parent source-flow validation. The preflight exposed three usable worker slots instead of the six-slot advisory target; the parent completed the remaining coverage. The scan warning that the working tree later changed refers to the test-only UI Automation stabilization made after the immutable target was captured.

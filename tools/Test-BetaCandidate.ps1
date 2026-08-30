@@ -8,6 +8,11 @@ param(
     [ValidatePattern('^[0-9a-fA-F]{40}$')]
     [string]$ExpectedSourceCommit,
 
+    [string]$ExpectedPublisher,
+
+    [ValidatePattern('^[0-9a-fA-F]{40}$')]
+    [string]$ExpectedSignerThumbprint,
+
     [switch]$RequireCleanSource,
 
     [string]$OutputPath
@@ -189,6 +194,12 @@ if ($checksumTotalBytes -ne $candidate.package.deliveryPackageBytes) {
 
 $packageInspection = Read-AppxManifest -PackagePath $packagePath
 $identity = $packageInspection.manifest.Package.Identity
+if (-not [string]::Equals(
+        [string]$identity.Name,
+        'AIDrawer.App',
+        [System.StringComparison]::Ordinal)) {
+    throw "Unexpected package identity. Expected 'AIDrawer.App', found '$($identity.Name)'."
+}
 foreach ($comparison in @(
     @('identity name', [string]$identity.Name, [string]$candidate.package.identityName),
     @('identity version', [string]$identity.Version, [string]$candidate.package.identityVersion),
@@ -279,8 +290,26 @@ if ($candidate.package.signed -ne $packageInspection.hasPackageSignature) {
 }
 
 if ($candidate.distribution.publicReleaseAllowed) {
+    if ([string]::IsNullOrWhiteSpace($ExpectedSourceCommit) -or
+        [string]::IsNullOrWhiteSpace($ExpectedPublisher) -or
+        [string]::IsNullOrWhiteSpace($ExpectedSignerThumbprint)) {
+        throw 'A public candidate requires independently supplied expected source commit, publisher, and signer thumbprint.'
+    }
     if ($candidate.source.dirty -or -not $isSigned) {
         throw 'A public candidate must have clean source and a valid Authenticode signature.'
+    }
+    if (-not [string]::Equals(
+            [string]$identity.Publisher,
+            $ExpectedPublisher,
+            [System.StringComparison]::Ordinal)) {
+        throw "Public package publisher mismatch. Expected '$ExpectedPublisher', found '$($identity.Publisher)'."
+    }
+    if ($null -eq $authenticode.SignerCertificate -or
+        -not [string]::Equals(
+            $authenticode.SignerCertificate.Thumbprint,
+            $ExpectedSignerThumbprint,
+            [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Public package signer thumbprint does not match the independently supplied approved certificate.'
     }
 
     $releaseNotesPath = Join-Path $resolvedCandidateDirectory 'RELEASE_NOTES.md'

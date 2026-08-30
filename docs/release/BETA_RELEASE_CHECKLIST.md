@@ -22,7 +22,7 @@ Current merged baseline, directly executable checks, external-device/account Gat
 - [ ] Final public product name, package identity, publisher, version scheme, and upgrade behavior are approved.
 - [ ] Framework-dependent versus self-contained MSIX packaging is decided and verified.
 - [ ] The public MSIX is signed through an approved secret-backed process; no certificate or private key is stored in the repository or workflow artifact.
-- [ ] Signature, certificate chain, SHA-256 checksum, source commit, and version tag are independently verified.
+- [ ] Signature, certificate chain, SHA-256 checksum, source commit, and version tag are independently verified; the public verifier receives the approved publisher and signer thumbprint independently of the downloaded sidecar files.
 - [ ] Clean install, update, rollback path, true exit, and uninstall are exercised on the supported matrix.
 
 ## Public surfaces and support

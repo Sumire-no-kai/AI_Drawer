@@ -30,7 +30,7 @@ Do not claim all serviced Windows 10 editions, LTSC 2019, or a broad Windows ran
 3. One-host cold-start, memory, and WebView2 process measurements are recorded without extrapolation: 8 processes at burst, 7 after grace expiry, and 6 at stable pre-fault state.
 4. Light/150% DPI, minimum-window, keyboard/focus, and app-level UI Automation pass. The same suite exits successfully under temporary Dark, 200% text, reduced-motion, and transparency-off settings, with the original settings restored afterward.
 5. Fixed BMC and Forms URL contracts pass source, record-only UI Automation, and one explicit live system-browser launch run from Home, Feedback & Support, and Settings. The live run opened two fixed BMC and two fixed Forms destinations and recorded only Windows' successful launch result; it did not inspect browser tabs, accounts, or page content.
-6. Framework-dependent and self-contained x64/ARM64 candidates build with explicit dependency properties and pass independent reinspection. The size/dependency comparison is recorded in `PACKAGING_MODE_EVIDENCE_2026-08-30.md`; it informs but does not decide the public packaging model.
+6. Framework-dependent and self-contained x64/ARM64 candidates build with explicit dependency properties and pass independent reinspection. The verifier fixes the application identity to `AIDrawer.App` and requires an independently supplied source commit, publisher, and signer thumbprint for any public candidate. The size/dependency comparison is recorded in `PACKAGING_MODE_EVIDENCE_2026-08-30.md`; it informs but does not decide the public packaging model.
 7. Reviewed static copy sources now cover `/`, `/download`, `/providers`, `/privacy`, `/security`, `/changelog`, and `/support`, plus a Store listing draft. They are source material only and are not deployed public pages.
 
 ## Gates that need accounts, another environment, or owner action
@@ -55,6 +55,8 @@ Do not claim all serviced Windows 10 editions, LTSC 2019, or a broad Windows ran
 - Test the exact signed bytes intended for publication, record certificate chain and SHA-256, create release notes and a source tag, publish first as a prerelease, then download and repeat checksum/install/launch/uninstall validation.
 
 ## Open security findings
+
+Release-hardening diff scan `85d2444c-7211-4be9-83ec-82bc53aeb3fe` closed both production C# review items in `a4bc03a1d15041aa785513bc0bdc67d172a1ae94...e465ad06c5274d5b134671cdde12313881b79f29` without a reportable application finding. Its native inventory excluded the changed PowerShell/workflow/document files, so the sealed record is intentionally partial for the whole diff. Manual review of all 21 changed files found and fixed the public-verifier signer-pinning gap; the verifier now requires independently supplied source, publisher, and signer trust inputs. Details are in `docs/security/SECURITY_REVIEW.md` and `docs/testing/HOST_ACCEPTANCE_2026-08-30.md`.
 
 Standard scan `50e49bc8-acaa-4684-9639-5fbd29f91623` at `c243c16` covered 108/108 tracked-file receipts and found no backdoor, covert telemetry, sensitive page-to-native collection, arbitrary command execution, automatic download execution, hardcoded secret/private key, or unexpected package capability. It did not close two Low provider-policy findings:
 
