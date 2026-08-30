@@ -6,6 +6,9 @@ param(
     [ValidateSet('x64', 'x86', 'arm64')]
     [string]$Architecture = 'x64',
 
+    [ValidateSet('FrameworkDependent', 'SelfContained')]
+    [string]$DependencyMode = 'FrameworkDependent',
+
     [ValidatePattern('^\d{1,5}\.\d{1,5}\.\d{1,5}\.\d{1,5}$')]
     [string]$PackageVersion = '1.0.0.0',
 
@@ -33,6 +36,10 @@ $packageDirectory = Join-Path $candidateDirectory 'package'
 $normalizedArchitecture = $Architecture.ToLowerInvariant()
 $platform = if ($normalizedArchitecture -eq 'arm64') { 'ARM64' } else { $normalizedArchitecture }
 $runtimeIdentifier = "win-$normalizedArchitecture"
+$isSelfContained = $DependencyMode -eq 'SelfContained'
+$selfContainedProperty = $isSelfContained.ToString().ToLowerInvariant()
+$candidateDirectoryCreated = $false
+$candidateCompleted = $false
 
 function Read-PackageManifest {
     param([Parameter(Mandatory)][string]$PackagePath)
@@ -149,9 +156,24 @@ try {
         throw "Candidate output already exists: $candidateDirectory"
     }
 
-    New-Item -ItemType Directory -Path $packageDirectory -Force | Out-Null
+    if (Test-Path -LiteralPath $resolvedOutputRoot) {
+        $outputRootItem = Get-Item -LiteralPath $resolvedOutputRoot
+        $outputRootIsReparsePoint = $outputRootItem.Attributes.HasFlag(
+            [System.IO.FileAttributes]::ReparsePoint)
+        if (-not $outputRootItem.PSIsContainer -or $outputRootIsReparsePoint) {
+            throw 'The candidate output root must be a normal directory, not a file or reparse point.'
+        }
+    }
+    else {
+        New-Item -ItemType Directory -Path $resolvedOutputRoot -Force | Out-Null
+    }
 
-    & $DotNetPath restore $projectPath --runtime $runtimeIdentifier "/p:Platform=$platform"
+    New-Item -ItemType Directory -Path $packageDirectory -Force | Out-Null
+    $candidateDirectoryCreated = $true
+
+    & $DotNetPath restore $projectPath --runtime $runtimeIdentifier "/p:Platform=$platform" `
+        "/p:SelfContained=$selfContainedProperty" `
+        "/p:WindowsAppSDKSelfContained=$selfContainedProperty"
     if ($LASTEXITCODE -ne 0) {
         throw "Restore failed with exit code $LASTEXITCODE."
     }
@@ -171,6 +193,8 @@ try {
         '/p:UapAppxPackageBuildMode=SideloadOnly'
         '/p:AppxBundle=Never'
         '/p:PublishReadyToRun=false'
+        "/p:SelfContained=$selfContainedProperty"
+        "/p:WindowsAppSDKSelfContained=$selfContainedProperty"
     )
 
     & $DotNetPath @buildArguments
@@ -195,6 +219,7 @@ try {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $archive = [System.IO.Compression.ZipFile]::OpenRead($packages[0].FullName)
     try {
+        $archiveEntryNames = @($archive.Entries | ForEach-Object FullName)
         $signatureEntry = $archive.Entries | Where-Object FullName -EQ 'AppxSignature.p7x'
         if ($null -ne $signatureEntry) {
             throw 'The internal candidate unexpectedly contains an MSIX signature.'
@@ -262,6 +287,33 @@ try {
         throw 'The package capabilities must contain only the reviewed runFullTrust capability.'
     }
 
+    $manifestDependencies = @(
+        $packageManifest.SelectNodes(
+            '/foundation:Package/foundation:Dependencies/foundation:PackageDependency',
+            $namespaceManager) |
+            ForEach-Object {
+                [ordered]@{
+                    name = [string]$_.Name
+                    publisher = [string]$_.Publisher
+                    minimumVersion = [string]$_.MinVersion
+                }
+            }
+    )
+
+    $containsDotNetRuntime = $archiveEntryNames -contains 'coreclr.dll'
+    $containsWindowsAppSdkRuntime = $archiveEntryNames -contains 'Microsoft.WindowsAppRuntime.dll'
+    if ($isSelfContained) {
+        if (-not $containsDotNetRuntime -or -not $containsWindowsAppSdkRuntime -or $manifestDependencies.Count -ne 0) {
+            throw 'The self-contained package did not contain both runtimes without a framework dependency.'
+        }
+    }
+    else {
+        $hasWindowsAppRuntimeDependency = $manifestDependencies.name -contains 'Microsoft.WindowsAppRuntime.2'
+        if ($containsDotNetRuntime -or $containsWindowsAppSdkRuntime -or -not $hasWindowsAppRuntimeDependency) {
+            throw 'The framework-dependent package runtime or manifest dependency contract was not satisfied.'
+        }
+    }
+
     $sensitiveFiles = @(Get-ChildItem -LiteralPath $candidateDirectory -File -Recurse | Where-Object Extension -In '.pfx', '.p12', '.key', '.pem')
     if ($sensitiveFiles.Count -gt 0) {
         throw 'Signing material or a private-key file was found in the candidate output.'
@@ -270,7 +322,16 @@ try {
     $packageHash = Get-FileHash -LiteralPath $packages[0].FullName -Algorithm SHA256
     $relativePackagePath = [System.IO.Path]::GetRelativePath($candidateDirectory, $packages[0].FullName).Replace('\', '/')
     $utf8WithoutBom = [System.Text.UTF8Encoding]::new($false)
-    $checksumText = "$($packageHash.Hash.ToLowerInvariant())  $relativePackagePath$([Environment]::NewLine)"
+    $deliveryPackages = @(
+        Get-ChildItem -LiteralPath $packageDirectory -Filter '*.msix' -File -Recurse |
+            Sort-Object FullName
+    )
+    $checksumText = ($deliveryPackages | ForEach-Object {
+        $relativePath = [System.IO.Path]::GetRelativePath($candidateDirectory, $_.FullName).Replace('\', '/')
+        $hash = Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256
+        "$($hash.Hash.ToLowerInvariant())  $relativePath"
+    }) -join [Environment]::NewLine
+    $checksumText += [Environment]::NewLine
     [System.IO.File]::WriteAllText(
         (Join-Path $candidateDirectory 'SHA256SUMS.txt'),
         $checksumText,
@@ -279,7 +340,7 @@ try {
     Copy-Item -LiteralPath $limitationsPath -Destination (Join-Path $candidateDirectory 'KNOWN_LIMITATIONS.md')
 
     $candidateManifest = [ordered]@{
-        schemaVersion = 1
+        schemaVersion = 2
         candidateKind = 'internal-unsigned-msix'
         candidateLabel = $CandidateLabel
         generatedAtUtc = (Get-Date).ToUniversalTime().ToString('O')
@@ -294,7 +355,16 @@ try {
             identityVersion = [string]$identity.Version
             publisher = [string]$identity.Publisher
             architecture = [string]$identity.ProcessorArchitecture
+            dependencyMode = $DependencyMode
+            mainPackageBytes = $packages[0].Length
+            deliveryPackageCount = $deliveryPackages.Count
+            deliveryPackageBytes = ($deliveryPackages | Measure-Object Length -Sum).Sum
+            archiveEntryCount = $archiveEntryNames.Count
+            containsDotNetRuntime = $containsDotNetRuntime
+            containsWindowsAppSdkRuntime = $containsWindowsAppSdkRuntime
+            manifestPackageDependencies = $manifestDependencies
             signed = $false
+            signatureStatus = [string](Get-AuthenticodeSignature -LiteralPath $packages[0].FullName).Status
             startupTaskDeclared = $true
             capabilities = @('runFullTrust')
         }
@@ -310,11 +380,35 @@ try {
         $candidateManifestJson,
         $utf8WithoutBom)
 
+    $candidateCompleted = $true
     Write-Host "Internal candidate created: $candidateDirectory"
     Write-Host "Package: $relativePackagePath"
+    Write-Host "Dependency mode: $DependencyMode"
+    Write-Host "Main package bytes: $($packages[0].Length)"
+    Write-Host "Delivery MSIX bytes: $(($deliveryPackages | Measure-Object Length -Sum).Sum)"
     Write-Host "SHA-256: $($packageHash.Hash.ToLowerInvariant())"
     Write-Warning 'This MSIX is intentionally unsigned and must not be published as an end-user release.'
 }
 finally {
     Pop-Location
+    if ($candidateDirectoryCreated -and -not $candidateCompleted -and (Test-Path -LiteralPath $candidateDirectory)) {
+        try {
+            $safeOutputRoot = $resolvedOutputRoot.TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
+            $safeCandidateDirectory = [System.IO.Path]::GetFullPath($candidateDirectory)
+            $isInsideOutputRoot = $safeCandidateDirectory.StartsWith(
+                $safeOutputRoot,
+                [System.StringComparison]::OrdinalIgnoreCase)
+            $hasExpectedName = [System.IO.Path]::GetFileName($safeCandidateDirectory) -eq $CandidateLabel
+            $isReparsePoint = (Get-Item -LiteralPath $safeCandidateDirectory).Attributes.HasFlag(
+                [System.IO.FileAttributes]::ReparsePoint)
+            if (-not $isInsideOutputRoot -or -not $hasExpectedName -or $isReparsePoint) {
+                throw 'Refusing to clean an unverified candidate output directory.'
+            }
+
+            [System.IO.Directory]::Delete($safeCandidateDirectory, $true)
+        }
+        catch {
+            Write-Warning "Incomplete candidate cleanup failed: $($_.Exception.Message)"
+        }
+    }
 }

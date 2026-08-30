@@ -16,6 +16,14 @@ on:
           - x64
           - x86
           - arm64
+      dependency_mode:
+        description: Runtime dependency model
+        required: true
+        default: FrameworkDependent
+        type: choice
+        options:
+          - FrameworkDependent
+          - SelfContained
 
 permissions:
   contents: read
@@ -39,13 +47,14 @@ jobs:
         env:
           CANDIDATE_LABEL: ${{ inputs.candidate_label }}
           CANDIDATE_ARCHITECTURE: ${{ inputs.architecture }}
+          CANDIDATE_DEPENDENCY_MODE: ${{ inputs.dependency_mode }}
           CANDIDATE_OUTPUT_ROOT: ${{ runner.temp }}/ai-drawer-beta-candidates
-        run: ./tools/Build-InternalBetaCandidate.ps1 -CandidateLabel $env:CANDIDATE_LABEL -Architecture $env:CANDIDATE_ARCHITECTURE -OutputRoot $env:CANDIDATE_OUTPUT_ROOT
+        run: ./tools/Build-InternalBetaCandidate.ps1 -CandidateLabel $env:CANDIDATE_LABEL -Architecture $env:CANDIDATE_ARCHITECTURE -DependencyMode $env:CANDIDATE_DEPENDENCY_MODE -OutputRoot $env:CANDIDATE_OUTPUT_ROOT
 
       - name: Upload internal candidate
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: ai-drawer-internal-${{ inputs.candidate_label }}-${{ inputs.architecture }}
+          name: ai-drawer-internal-${{ inputs.candidate_label }}-${{ inputs.architecture }}-${{ inputs.dependency_mode }}
           path: ${{ runner.temp }}/ai-drawer-beta-candidates/${{ inputs.candidate_label }}
           if-no-files-found: error
           retention-days: 14
