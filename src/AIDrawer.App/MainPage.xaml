@@ -272,6 +272,7 @@
                     <ColumnDefinition Width="4" />
                     <ColumnDefinition Width="Auto" />
                     <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
                 </Grid.ColumnDefinitions>
                 <Border x:Name="StatusAccent" CornerRadius="2" Background="{ThemeResource AccentFillColorDefaultBrush}" />
                 <FontIcon x:Name="StatusGlyph" Grid.Column="1" FontSize="16" Glyph="&#xE946;" />
@@ -279,6 +280,14 @@
                     <TextBlock x:Name="StatusTitle" FontWeight="SemiBold" />
                     <TextBlock x:Name="StatusMessage" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 </StackPanel>
+                <Button
+                    Grid.Column="3"
+                    Style="{StaticResource TabCloseButtonStyle}"
+                    VerticalAlignment="Center"
+                    AutomationProperties.Name="Dismiss status message"
+                    Click="DismissStatusButton_Click">
+                    <FontIcon Glyph="&#xE711;" FontSize="10" />
+                </Button>
             </Grid>
         </Border>
 

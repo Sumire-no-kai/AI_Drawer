@@ -3,19 +3,22 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
-using Windows.ApplicationModel.DataTransfer;
 using Windows.System;
 
 namespace AIDrawer;
 
 public sealed partial class MainPage
 {
-    private const double MinimumSplitWidth = 1000;
+    private const double MinimumSplitWidth = 720;
     private readonly Dictionary<string, WorkspaceStateChangedEventArgs> _workspaceStates = new(StringComparer.Ordinal);
     private bool _tabDialogOpen;
     private int _applyingLayout;
     private bool _showingTwoPanes;
-    private string? _draggedWorkspaceId;
+    private string? _pointerDraggedWorkspaceId;
+    private uint? _workspaceDragPointerId;
+    private Windows.Foundation.Point _workspaceDragStart;
+    private Button? _workspaceDragButton;
+    private bool _workspaceDragStarted;
 
     private bool CanEditWorkspaces => _pageState == PageLifecycleState.Ready
         && _providerResetInProgress is null && _promptCompletion is null && !_tabDialogOpen;
@@ -70,6 +73,7 @@ public sealed partial class MainPage
         {
             return;
         }
+        BringFocusedWorkspaceTabIntoView();
         if (_activeWorkspace is { IsProviderUnavailable: true } unavailable)
         {
             ShowStatus("Provider unavailable", $"The tab '{unavailable.DisplayName}' was preserved. Choose another available tab.", InfoBarSeverity.Warning);
@@ -83,6 +87,27 @@ public sealed partial class MainPage
             PromoteCommittedRestoreLocators(coordinator);
         }
         await PersistSessionAsync();
+    }
+
+    private void BringFocusedWorkspaceTabIntoView()
+    {
+        if (_activeWorkspace is not { } focusedTab || !_workspaceTabViews.TryGetValue(focusedTab.Id, out var focusedTabView))
+        {
+            return;
+        }
+
+        var focusedId = focusedTab.Id;
+        _ = DispatcherQueue.TryEnqueue(() =>
+        {
+            if (_activeWorkspace?.Id == focusedId)
+            {
+                focusedTabView.Container.StartBringIntoView(new BringIntoViewOptions
+                {
+                    AnimationDesired = _uiSettings.AnimationsEnabled,
+                    HorizontalAlignmentRatio = 0.5
+                });
+            }
+        });
     }
 
     private void UpdatePaneGeometry()
@@ -109,6 +134,21 @@ public sealed partial class MainPage
         {
             return;
         }
+
+        if (_session.Layout.IsSplit && !_showingTwoPanes)
+        {
+            var focused = _session.FocusedWorkspace;
+            var otherId = _session.Layout.PrimaryWorkspaceId == focused?.Id
+                ? _session.Layout.SecondaryWorkspaceId
+                : _session.Layout.PrimaryWorkspaceId;
+            var other = _session.Find(otherId);
+            PrimaryPaneButton.Content = $"{focused?.DisplayName ?? "Tab"} · split with {other?.DisplayName ?? "another tab"} is paused — widen the window";
+            PrimaryPaneButton.Tag = focused?.Id;
+            AutomationProperties.SetName(PrimaryPaneButton,
+                $"Focus {focused?.DisplayName}; split with {other?.DisplayName} is paused until the window is wider");
+            return;
+        }
+
         var ids = _session.Layout.VisibleWorkspaceIds(_showingTwoPanes);
         var buttons = new[] { PrimaryPaneButton, SecondaryPaneButton };
         for (var index = 0; index < ids.Count; index++)
@@ -136,6 +176,7 @@ public sealed partial class MainPage
         StatusBanner.Visibility = Visibility.Collapsed;
         UpdatePaneGeometry();
         UpdateWorkspaceTabSelection();
+        BringFocusedWorkspaceTabIntoView();
         UpdateProviderDataSettingsUi();
         _workspaceCoordinator?.FocusWorkspace(workspaceId);
         if (_activeWorkspace?.Provider is { } provider)
@@ -275,30 +316,96 @@ public sealed partial class MainPage
             }
         };
         button.ContextFlyout = menu;
-        button.CanDrag = true;
-        button.AllowDrop = true;
-        button.DragStarting += (_, args) =>
+        button.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, args) =>
         {
-            if (!CanEditWorkspaces)
+            var point = args.GetCurrentPoint(WorkspaceTabs);
+            if (CanEditWorkspaces && (point.IsInContact || point.Properties.IsLeftButtonPressed))
             {
-                args.Cancel = true;
-                return;
+                ResetWorkspacePointerDrag();
+                _pointerDraggedWorkspaceId = tab.Id;
+                _workspaceDragPointerId = point.PointerId;
+                _workspaceDragStart = point.Position;
+                _workspaceDragButton = button;
+                _workspaceDragStarted = false;
             }
-            _draggedWorkspaceId = tab.Id;
-            args.Data.RequestedOperation = DataPackageOperation.Move;
-        };
-        button.DropCompleted += (_, _) => _draggedWorkspaceId = null;
-        button.DragOver += (_, args) => args.AcceptedOperation = CanEditWorkspaces && _draggedWorkspaceId is not null
-            ? DataPackageOperation.Move : DataPackageOperation.None;
-        button.Drop += async (_, args) =>
+        }), true);
+    }
+
+    private void WorkspaceTabDrag_PointerMoved(object sender, PointerRoutedEventArgs args)
+    {
+        var point = args.GetCurrentPoint(WorkspaceTabs);
+        if (_pointerDraggedWorkspaceId is null || _workspaceDragPointerId != point.PointerId)
         {
-            if (CanEditWorkspaces && _draggedWorkspaceId is { } id)
+            return;
+        }
+        if (!point.IsInContact && !point.Properties.IsLeftButtonPressed)
+        {
+            ResetWorkspacePointerDrag();
+            return;
+        }
+
+        if (!_workspaceDragStarted
+            && Math.Abs(point.Position.X - _workspaceDragStart.X) < 8
+            && Math.Abs(point.Position.Y - _workspaceDragStart.Y) < 8)
+        {
+            return;
+        }
+
+        _workspaceDragStarted = true;
+        if (_workspaceDragButton is { } button)
+        {
+            button.Opacity = 0.65;
+        }
+    }
+
+    private async void WorkspaceTabDrag_PointerReleased(object sender, PointerRoutedEventArgs args)
+    {
+        var point = args.GetCurrentPoint(WorkspaceTabs);
+        var id = _pointerDraggedWorkspaceId;
+        var shouldMove = CanEditWorkspaces && _workspaceDragStarted && id is not null
+            && _workspaceDragPointerId == point.PointerId
+            && point.Position.Y >= 0 && point.Position.Y <= WorkspaceTabs.ActualHeight;
+        var destination = shouldMove ? GetWorkspaceDropIndex(point.Position.X) : -1;
+        ResetWorkspacePointerDrag();
+        if (shouldMove)
+        {
+            args.Handled = true;
+            await MoveWorkspaceAsync(id!, destination);
+        }
+    }
+
+    private void WorkspaceTabDrag_PointerCanceled(object sender, PointerRoutedEventArgs args) =>
+        ResetWorkspacePointerDrag();
+
+    private void ResetWorkspacePointerDrag()
+    {
+        if (_workspaceDragButton is { } button)
+        {
+            button.Opacity = 1;
+        }
+        _pointerDraggedWorkspaceId = null;
+        _workspaceDragPointerId = null;
+        _workspaceDragButton = null;
+        _workspaceDragStarted = false;
+    }
+
+    private int GetWorkspaceDropIndex(double pointerX)
+    {
+        var closestIndex = 0;
+        var closestDistance = double.MaxValue;
+        for (var index = 0; index < _workspaces.Count; index++)
+        {
+            var container = _workspaceTabViews[_workspaces[index].Id].Container;
+            var position = container.TransformToVisual(WorkspaceTabs).TransformPoint(new Windows.Foundation.Point());
+            var distance = Math.Abs(pointerX - position.X - container.ActualWidth / 2);
+            if (distance < closestDistance)
             {
-                args.Handled = true;
-                _draggedWorkspaceId = null;
-                await MoveWorkspaceAsync(id, _workspaces.ToList().IndexOf(tab));
+                closestIndex = index;
+                closestDistance = distance;
             }
-        };
+        }
+
+        return closestIndex;
     }
 
     private async Task MoveWorkspaceAsync(string id, int index)

@@ -32,6 +32,8 @@ New-Item -ItemType Directory -Force -Path $outputDirectory | Out-Null
 
 Add-Type -AssemblyName UIAutomationClient
 Add-Type -AssemblyName UIAutomationTypes
+Add-Type -AssemblyName System.Drawing.Common
+Add-Type -AssemblyName System.Windows.Forms
 Add-Type -TypeDefinition @'
 using System;
 using System.Runtime.InteropServices;
@@ -48,6 +50,48 @@ public static class AIDrawerAcceptanceNative
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool PostThreadMessage(uint threadId, uint message, UIntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetCursorPos(int x, int y);
+
+    [DllImport("user32.dll")]
+    public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, UIntPtr extraInfo);
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct MOUSEINPUT
+    {
+        public int dx;
+        public int dy;
+        public uint mouseData;
+        public uint dwFlags;
+        public uint time;
+        public UIntPtr dwExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct INPUT
+    {
+        public uint type;
+        public MOUSEINPUT mouse;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern uint SendInput(uint count, INPUT[] inputs, int size);
+
+    public static bool SendMouse(int x, int y, uint flags)
+    {
+        INPUT[] inputs = new INPUT[1];
+        inputs[0].type = 0;
+        inputs[0].mouse.dx = x;
+        inputs[0].mouse.dy = y;
+        inputs[0].mouse.dwFlags = flags;
+        return SendInput(1, inputs, Marshal.SizeOf(typeof(INPUT))) == 1;
+    }
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetForegroundWindow(IntPtr windowHandle);
 
 }
 '@
@@ -172,6 +216,197 @@ function Invoke-ByName {
 
     Wait-Condition { $null -ne (Find-ElementByName $Name) } ([TimeSpan]::FromSeconds(20)) "$Name UI action"
     Invoke-Element (Find-ElementByName $Name)
+}
+
+function Find-AppButtonByName {
+    param([string]$Name)
+
+    $condition = [System.Windows.Automation.AndCondition]::new(
+        [System.Windows.Automation.PropertyCondition]::new(
+            [System.Windows.Automation.AutomationElement]::NameProperty,
+            $Name),
+        [System.Windows.Automation.PropertyCondition]::new(
+            [System.Windows.Automation.AutomationElement]::ProcessIdProperty,
+            $application.Id),
+        [System.Windows.Automation.PropertyCondition]::new(
+            [System.Windows.Automation.AutomationElement]::ControlTypeProperty,
+            [System.Windows.Automation.ControlType]::Button))
+    return [System.Windows.Automation.AutomationElement]::RootElement.FindFirst(
+        [System.Windows.Automation.TreeScope]::Descendants,
+        $condition)
+}
+
+function Invoke-AppElementByName {
+    param([string]$Name)
+
+    $deadline = [DateTime]::UtcNow.AddSeconds(20)
+    do {
+        $element = Find-AppElementByName $Name
+        $pattern = $null
+        if ($null -ne $element -and $element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) {
+            ([System.Windows.Automation.InvokePattern]$pattern).Invoke()
+            return
+        }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
+
+    throw "$Name did not expose an invokable UI Automation element."
+}
+
+function Click-AppElementByName {
+    param(
+        [string]$Name,
+        [switch]$RightClick,
+        [switch]$ButtonOnly
+    )
+
+    $deadline = [DateTime]::UtcNow.AddSeconds(20)
+    do {
+        $element = if ($ButtonOnly) { Find-AppButtonByName $Name } else { Find-AppElementByName $Name }
+        if ($null -ne $element) {
+            $bounds = $element.Current.BoundingRectangle
+            if ($bounds.Width -gt 0 -and $bounds.Height -gt 0) {
+                $x = [int]($bounds.Left + ($bounds.Width / 2))
+                $y = [int]($bounds.Top + ($bounds.Height / 2))
+                if (-not [AIDrawerAcceptanceNative]::SetCursorPos($x, $y)) {
+                    throw "Could not position the pointer for $Name."
+                }
+                $down = if ($RightClick) { 0x0008 } else { 0x0002 }
+                $up = if ($RightClick) { 0x0010 } else { 0x0004 }
+                [AIDrawerAcceptanceNative]::mouse_event($down, 0, 0, 0, [UIntPtr]::Zero)
+                [AIDrawerAcceptanceNative]::mouse_event($up, 0, 0, 0, [UIntPtr]::Zero)
+                return
+            }
+        }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
+
+    throw "$Name did not expose a clickable UI Automation rectangle."
+}
+
+function Drag-AppButtonByName {
+    param([string]$SourceName, [string]$TargetName)
+
+    $source = Find-AppButtonByName $SourceName
+    $target = Find-AppButtonByName $TargetName
+    if ($null -eq $source -or $null -eq $target)
+    {
+        throw "Could not find the $SourceName or $TargetName tab for drag ordering."
+    }
+
+    $sourceBounds = $source.Current.BoundingRectangle
+    $targetBounds = $target.Current.BoundingRectangle
+    if ($sourceBounds.Width -le 0 -or $targetBounds.Width -le 0)
+    {
+        throw "The $SourceName or $TargetName tab was outside the visible tab strip."
+    }
+
+    $sourceX = [int]($sourceBounds.Left + ($sourceBounds.Width / 2))
+    $sourceY = [int]($sourceBounds.Top + ($sourceBounds.Height / 2))
+    $targetX = [int]($targetBounds.Left + ($targetBounds.Width * 0.25))
+    $targetY = [int]($targetBounds.Top + ($targetBounds.Height / 2))
+    if (-not [AIDrawerAcceptanceNative]::SetCursorPos($sourceX, $sourceY))
+    {
+        throw "Could not position the pointer on $SourceName."
+    }
+
+    if (-not [AIDrawerAcceptanceNative]::SendMouse(0, 0, 0x0002))
+    {
+        throw "Could not press the pointer on $SourceName."
+    }
+    Start-Sleep -Milliseconds 200
+    $virtualScreen = [System.Windows.Forms.SystemInformation]::VirtualScreen
+    for ($step = 1; $step -le 20; $step++)
+    {
+        $x = [int]($sourceX + (($targetX - $sourceX) * $step / 20))
+        $y = [int]($sourceY + (($targetY - $sourceY) * $step / 20))
+        $normalizedX = [int](($x - $virtualScreen.Left) * 65535 / [Math]::Max(1, $virtualScreen.Width - 1))
+        $normalizedY = [int](($y - $virtualScreen.Top) * 65535 / [Math]::Max(1, $virtualScreen.Height - 1))
+        if (-not [AIDrawerAcceptanceNative]::SendMouse($normalizedX, $normalizedY, 0xC001))
+        {
+            throw "Could not move the pointer while dragging $SourceName."
+        }
+        Start-Sleep -Milliseconds 75
+    }
+    if (-not [AIDrawerAcceptanceNative]::SendMouse(0, 0, 0x0004))
+    {
+        throw "Could not release the pointer on $TargetName."
+    }
+}
+
+function Set-FocusedTextValue {
+    param([string]$Value, [string]$Description)
+
+    Wait-Condition {
+        $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
+        return $null -ne $focused -and
+            $focused.Current.ProcessId -eq $application.Id -and
+            $focused.Current.ControlType -eq [System.Windows.Automation.ControlType]::Edit
+    } ([TimeSpan]::FromSeconds(10)) $Description
+    $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
+    $pattern = $focused.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern)
+    ([System.Windows.Automation.ValuePattern]$pattern).SetValue($Value)
+}
+
+function Send-AppKeys {
+    param([string]$Keys)
+
+    if (-not [AIDrawerAcceptanceNative]::SetForegroundWindow($application.MainWindowHandle)) {
+        throw 'Could not foreground the application for keyboard acceptance.'
+    }
+    Start-Sleep -Milliseconds 200
+    [System.Windows.Forms.SendKeys]::SendWait($Keys)
+}
+
+function Invoke-PrimaryPromptWithKeyboard {
+    param([string]$SecondaryName, [string]$PrimaryName)
+
+    $deadline = [DateTime]::UtcNow.AddSeconds(20)
+    do {
+        $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
+        if ($null -ne $focused -and
+            $focused.Current.ProcessId -eq $application.Id -and
+            [string]::Equals($focused.Current.Name, $SecondaryName, [StringComparison]::Ordinal)) {
+            break
+        }
+        Start-Sleep -Milliseconds 200
+    } while ([DateTime]::UtcNow -lt $deadline)
+
+    $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
+    if ($null -eq $focused -or
+        $focused.Current.ProcessId -ne $application.Id -or
+        -not [string]::Equals($focused.Current.Name, $SecondaryName, [StringComparison]::Ordinal)) {
+        throw "$SecondaryName did not receive prompt focus."
+    }
+
+    [System.Windows.Forms.SendKeys]::SendWait('{TAB}')
+    Wait-Condition {
+        $next = [System.Windows.Automation.AutomationElement]::FocusedElement
+        return $null -ne $next -and
+            $next.Current.ProcessId -eq $application.Id -and
+            [string]::Equals($next.Current.Name, $PrimaryName, [StringComparison]::Ordinal)
+    } ([TimeSpan]::FromSeconds(5)) "$PrimaryName prompt focus"
+    [System.Windows.Forms.SendKeys]::SendWait('{ENTER}')
+}
+
+function Save-WindowScreenshot {
+    param([string]$Name)
+
+    $bounds = (Get-RootElement).Current.BoundingRectangle
+    $width = [Math]::Max(1, [int][Math]::Ceiling($bounds.Width))
+    $height = [Math]::Max(1, [int][Math]::Ceiling($bounds.Height))
+    $bitmap = [Drawing.Bitmap]::new($width, $height)
+    $graphics = [Drawing.Graphics]::FromImage($bitmap)
+    try {
+        $graphics.CopyFromScreen([int]$bounds.Left, [int]$bounds.Top, 0, 0, $bitmap.Size)
+        $path = Join-Path $outputDirectory $Name
+        $bitmap.Save($path, [Drawing.Imaging.ImageFormat]::Png)
+        return $path
+    }
+    finally {
+        $graphics.Dispose()
+        $bitmap.Dispose()
+    }
 }
 
 function Read-Settings {
@@ -434,6 +669,62 @@ try {
         (@(Find-ButtonNames | Where-Object { $_ -like '*reload*' }).Count -eq 0) `
         "WebView2 processes: $($burstSnapshot.webViewProcessCount)"
 
+    Send-AppKeys '^t'
+    Wait-SuccessfulOpenCount 5 'same-provider Ctrl+T navigation'
+    Wait-Condition {
+        $session = Read-Session
+        return $null -ne $session -and
+            @($session.Workspaces).Count -eq 5 -and
+            @($session.Workspaces | Where-Object { $_.ProviderId -eq 'grok' }).Count -eq 2
+    } ([TimeSpan]::FromSeconds(20)) 'same-provider tab persistence'
+    Add-Check 'Ctrl+T creates another retained tab with the focused provider' $true 'a second Grok tab opened with its own workspace identity'
+
+    Click-AppElementByName 'Grok 2' -RightClick -ButtonOnly
+    Invoke-AppElementByName 'Rename tab'
+    Set-FocusedTextValue 'Research' 'rename input focus'
+    Invoke-AppElementByName 'Save'
+    Wait-Condition {
+        $session = Read-Session
+        return $null -ne $session -and @($session.Workspaces | Where-Object { $_.DisplayName -eq 'Research' }).Count -eq 1
+    } ([TimeSpan]::FromSeconds(20)) 'renamed tab persistence'
+
+    Drag-AppButtonByName 'Research' 'Grok'
+    Start-Sleep -Seconds 1
+    Wait-Condition {
+        $session = Read-Session
+        return $null -ne $session -and
+            @($session.Workspaces).Count -eq 5 -and
+            $session.Workspaces[3].DisplayName -eq 'Research' -and
+            $session.Workspaces[4].DisplayName -eq 'Grok'
+    } ([TimeSpan]::FromSeconds(20)) 'tab order persistence'
+    Add-Check 'Rename and drag actions update the intended tab' $true 'Research was dragged left of the original Grok tab without changing provider identity'
+
+    Invoke-ByName 'Find an open tab'
+    Set-FocusedTextValue 'Research' 'tab search input focus'
+    Wait-Condition { $null -ne (Find-AppElementByName 'Research — Grok') } ([TimeSpan]::FromSeconds(10)) 'filtered tab result'
+    Click-AppElementByName 'Research — Grok'
+    Invoke-AppElementByName 'Switch'
+    Wait-Condition {
+        $session = Read-Session
+        if ($null -eq $session) { return $false }
+        $research = @($session.Workspaces | Where-Object { $_.DisplayName -eq 'Research' }) | Select-Object -First 1
+        return $null -ne $research -and $session.ActiveWorkspaceId -eq $research.Id
+    } ([TimeSpan]::FromSeconds(20)) 'searched tab selection'
+    Add-Check 'Tab search switches to the selected retained workspace' $true 'the filtered Research result became focused'
+
+    $orderedSession = Read-Session
+    $orderedIds = @($orderedSession.Workspaces | ForEach-Object Id)
+    Send-AppKeys '^1'
+    Wait-Condition { (Read-Session).ActiveWorkspaceId -eq $orderedIds[0] } ([TimeSpan]::FromSeconds(10)) 'Ctrl+1 tab selection'
+    Send-AppKeys '^{TAB}'
+    Wait-Condition { (Read-Session).ActiveWorkspaceId -eq $orderedIds[1] } ([TimeSpan]::FromSeconds(10)) 'Ctrl+Tab cycling'
+    Send-AppKeys '^5'
+    Wait-Condition { (Read-Session).ActiveWorkspaceId -eq $orderedIds[4] } ([TimeSpan]::FromSeconds(10)) 'Ctrl+5 tab selection'
+    Add-Check 'Ctrl+Tab and positional shortcuts select the expected tabs' $true 'Ctrl+1, Ctrl+Tab, and Ctrl+5 matched persisted tab order'
+    Start-Sleep -Seconds 1
+    [void](Save-WindowScreenshot '00-tab-management.png')
+
+    $retentionStartSnapshot = Get-ProcessSnapshot 'five retained conversation pages before observation'
     if (-not $SkipFiveMinuteWait) {
         $deadline = [DateTime]::UtcNow.AddMinutes($RetentionObservationMinutes)
         do {
@@ -444,13 +735,17 @@ try {
         } while ([DateTime]::UtcNow -lt $deadline)
         $steadySnapshot = Get-ProcessSnapshot 'retained pages after observation period'
         Add-Check 'Background pages remain retained beyond the former grace period' $true `
-            "WebView2 processes: $($steadySnapshot.webViewProcessCount)"
+            "WebView2 processes: $($retentionStartSnapshot.webViewProcessCount) to $($steadySnapshot.webViewProcessCount); working set: $($retentionStartSnapshot.totalWebViewWorkingSetBytes) to $($steadySnapshot.totalWebViewWorkingSetBytes) bytes"
     }
 
     Invoke-ByName 'Gemini'
     Invoke-ByName 'Workspace actions'
-    Invoke-ByName 'Release page…'
-    Invoke-ByName 'Release page'
+    Start-Sleep -Milliseconds 500
+    [void](Save-WindowScreenshot '01-workspace-actions.png')
+    Invoke-AppElementByName 'Release page…'
+    Start-Sleep -Milliseconds 500
+    [void](Save-WindowScreenshot '02-after-release-click.png')
+    Invoke-PrimaryPromptWithKeyboard 'Keep open' 'Release page'
     Wait-Condition {
         return @(Find-ButtonNames | Where-Object { $_ -like 'Gemini*reload*' }).Count -eq 1
     } ([TimeSpan]::FromSeconds(30)) 'explicit page release'

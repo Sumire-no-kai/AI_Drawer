@@ -10,6 +10,7 @@ Current merged baseline, directly executable checks, external-device/account Gat
 - [x] Native cache/reset-all scope and download filename/destination/caution policies are implemented with automated policy and settings-UI coverage.
 - [x] Native WebView security defaults, bounded recovery decisions, exact provider-home origin contracts, and off-screen window placement handling have repeatable automated coverage.
 - [x] Windows 11 x64 no-account acceptance covers the real five-minute live-WebView budget, four-workspace pressure, Keep active, same-profile restoration, cache/reset APIs, Renderer/GPU/Browser recovery, tray, shortcut, exact Exit, and zero process/profile residue.
+- [x] Windows 11 x64 retained-tab acceptance covers five simultaneous pages, same-provider creation, rename, physical drag ordering, search, keyboard switching, narrow/default split behavior, explicit release/recreation, five-minute retention, and zero isolated-profile residue.
 - [x] Native UI Automation passes on the current Light/150% DPI environment and under temporary Dark/200% text/reduced-motion/transparency-off settings, with changed Windows settings restored after the run.
 - [ ] M2 acceptance evidence is complete or the remaining scope is explicitly accepted as a documented Beta limitation.
 - [ ] M3 navigation, commerce, diagnostics, disclosure, and security-review findings are closed with focused runtime evidence.

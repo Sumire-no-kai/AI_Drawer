@@ -423,6 +423,13 @@ try
                 StringComparison.Ordinal));
         Equal("Can't find the AI you want? Tell me.", missingProviderFeedback.Attribute("AutomationProperties.Name")?.Value);
         Equal("MissingProviderFeedbackButton_Click", missingProviderFeedback.Attribute("Click")?.Value);
+        var dismissStatusButton = document
+            .Descendants()
+            .Single(element => string.Equals(
+                element.Attribute("AutomationProperties.Name")?.Value,
+                "Dismiss status message",
+                StringComparison.Ordinal));
+        Equal("DismissStatusButton_Click", dismissStatusButton.Attribute("Click")?.Value);
         var rootLayout = document
             .Descendants()
             .Single(element => string.Equals(
@@ -619,6 +626,10 @@ try
 
                     ((InvokePattern)notNow.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
                     await WaitUntilAsync(
+                        () => !IsVisibleByName(root, "Support independent development"),
+                        TimeSpan.FromSeconds(10),
+                        "support reminder immediate snooze dismissal");
+                    await WaitUntilAsync(
                         () => TryReadSettings(settingsPath) is
                         {
                             SupportReminderSnoozedUntilUtc: { } untilUtc,
@@ -658,6 +669,10 @@ try
                         "Don't ask again",
                         "support reminder permanent dismissal");
                     ((InvokePattern)never.GetCurrentPattern(InvokePattern.Pattern)).Invoke();
+                    await WaitUntilAsync(
+                        () => !IsVisibleByName(root, "Support independent development"),
+                        TimeSpan.FromSeconds(10),
+                        "support reminder immediate permanent dismissal");
                     await WaitUntilAsync(
                         () => TryReadSettings(settingsPath) is { SupportReminderDismissed: true },
                         TimeSpan.FromSeconds(20),
@@ -847,8 +862,8 @@ try
                 True(FindByName(root, "Clear provider cache") is not null);
                 True(FindByName(root, "Reset all AI website data") is not null);
 
-                ToggleByName(root, "Always on top", ToggleState.On);
-                ToggleByName(root, "Close button behavior", ToggleState.Off);
+                await ToggleByNameAsync(root, "Always on top", ToggleState.On);
+                await ToggleByNameAsync(root, "Close button behavior", ToggleState.Off);
                 await WaitUntilAsync(
                     () => TryReadSettings(settingsPath) is { AlwaysOnTop: true, CloseToTray: false },
                     TimeSpan.FromSeconds(10),
@@ -1090,7 +1105,7 @@ static AutomationElement? FindByAutomationId(AutomationElement root, string auto
     return root.FindFirst(TreeScope.Descendants, condition);
 }
 
-static void ToggleByName(AutomationElement root, string name, ToggleState expectedState)
+static async Task ToggleByNameAsync(AutomationElement root, string name, ToggleState expectedState)
 {
     var element = FindByName(root, name)
         ?? throw new InvalidOperationException($"{name} toggle was not found.");
@@ -1099,6 +1114,17 @@ static void ToggleByName(AutomationElement root, string name, ToggleState expect
     {
         pattern.Toggle();
     }
+
+    await WaitUntilAsync(
+        () =>
+        {
+            var current = FindByName(root, name);
+            return current is not null
+                && current.Current.IsEnabled
+                && ((TogglePattern)current.GetCurrentPattern(TogglePattern.Pattern)).Current.ToggleState == expectedState;
+        },
+        TimeSpan.FromSeconds(5),
+        $"{name} toggle state");
 }
 
 static AppSettings? TryReadSettings(string path)
@@ -1205,22 +1231,45 @@ static async Task<AutomationElement> WaitForVisibleButtonAsync(
     }
 
     AutomationElement? visibleElement = null;
+    var lastLeft = double.NaN;
+    var lastTop = double.NaN;
+    var lastWidth = double.NaN;
+    var lastHeight = double.NaN;
+    var stableSamples = 0;
     await WaitUntilAsync(
         () =>
         {
             visibleElement = FindButtonByName(root, name);
             if (visibleElement is null)
             {
+                stableSamples = 0;
                 return false;
             }
 
             try
             {
-                var bounds = visibleElement.Current.BoundingRectangle;
-                return !visibleElement.Current.IsOffscreen && bounds.Width > 0 && bounds.Height > 0;
+                var current = visibleElement.Current;
+                var bounds = current.BoundingRectangle;
+                if (current.IsOffscreen || !current.IsEnabled || bounds.Width <= 0 || bounds.Height <= 0)
+                {
+                    stableSamples = 0;
+                    return false;
+                }
+
+                var positionIsStable = Math.Abs(bounds.Left - lastLeft) < 0.5
+                    && Math.Abs(bounds.Top - lastTop) < 0.5
+                    && Math.Abs(bounds.Width - lastWidth) < 0.5
+                    && Math.Abs(bounds.Height - lastHeight) < 0.5;
+                stableSamples = positionIsStable ? stableSamples + 1 : 0;
+                lastLeft = bounds.Left;
+                lastTop = bounds.Top;
+                lastWidth = bounds.Width;
+                lastHeight = bounds.Height;
+                return stableSamples >= 2;
             }
             catch (ElementNotAvailableException)
             {
+                stableSamples = 0;
                 return false;
             }
         },

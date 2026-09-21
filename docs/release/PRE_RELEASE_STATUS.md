@@ -1,24 +1,22 @@
 # Public Beta pre-release status
 
-Last verified: 2026-08-27
+Last verified: 2026-09-21
 
 This is the durable current-state summary for the first AI Drawer Public Beta. It complements the chronological development log and the normative release checklist. A source change, passing build, runtime result, package result, device result, and publication result are separate evidence Gates.
 
-The retained-tab and split-view redesign supersedes the earlier automatic-disposal lifecycle. Its local test execution and GUI acceptance are deferred; the historical evidence below must not be reused as acceptance for the redesign. See [ADR 0003](../adr/0003-retained-conversation-tabs-and-split-view.md).
+The retained-tab and split-view redesign supersedes the earlier automatic-disposal lifecycle. Its Windows 11 x64 no-account source, UI, five-page, five-minute, recovery, and guest-provider acceptance is recorded in [HOST_ACCEPTANCE_2026-09-21.md](../testing/HOST_ACCEPTANCE_2026-09-21.md). Provider-account, additional-device, accessibility, and signed-package Gates remain separate.
 
 ## Current baseline
 
-- `master` commit: `0191ee5e16bede4f0da9dbefd0b9d3a6713034c9`
-- Merged work: PR #18, reviewed head `cd925b2b2d49bb0c3cc7595f51dabe75bd9d75a6`
-- Post-merge CI: run `33037886187`; x64, x86, ARM64, formatting, and compatibility/privacy-safe policy jobs passed
+- Acceptance implementation baseline: `a7d9b5e`, based on `master` `f21c444`; retained-tab delivery was merged through PR #21 before this acceptance-fix work.
 - Public artifact: none; inspected candidates remain unsigned internal evidence and must not be distributed to end users
-- Current-host no-account source/runtime acceptance is complete and recorded in `docs/testing/HOST_ACCEPTANCE_2026-08-27.md`. Planning estimate only: application implementation about 92%, code-freeze readiness about 88%, Public Beta readiness about 65–70%. These percentages do not override an unchecked release Gate.
+- Current-host retained-tab no-account acceptance is complete and recorded in `docs/testing/HOST_ACCEPTANCE_2026-09-21.md`. The earlier M4 baseline remains recorded in `docs/testing/HOST_ACCEPTANCE_2026-08-27.md`. Planning percentages are intentionally omitted because they do not substitute for release Gates.
 
 ## First Beta platform scope
 
 | Target | Public support intent | Current evidence |
 | --- | --- | --- |
-| Windows 11 x64 | Included | Source, no-account runtime, real five-minute resource/recovery, Light/150% DPI UI Automation, and temporary Dark/200% text/reduced-motion/transparency-off checks pass on build `10.0.26200.9168` with WebView2 `151.0.4129.107`. Provider-account, live High Contrast/Narrator/200% display DPI, and signed-package acceptance remain open. |
+| Windows 11 x64 | Included | Retained-tab source, five-page runtime, real five-minute retention/recovery, guest-provider visual checks, and Light/150% DPI UI Automation pass on build `10.0.26200.9457` with WebView2 `153.0.4234.48`. Earlier temporary Dark/200% text/reduced-motion/transparency-off evidence remains tied to the 2026-08-27 baseline. Provider-account, live High Contrast/Narrator/200% display DPI, and signed-package acceptance remain open. |
 | Windows 10 x64 | Included | Matching device or controlled VM acceptance remains open. Only versions actually tested may be named in release notes. |
 | Windows 11 ARM64 | Included | Cross-build and package inspection pass; matching-device runtime, WebView2, tray, shortcut, startup, install, and uninstall acceptance remain open. |
 | Windows x86 | Not included | CI/build inspection only; it is not a first-Beta runtime support claim. |
@@ -28,9 +26,9 @@ Do not claim all serviced Windows 10 editions, LTSC 2019, or a broad Windows ran
 ## Completed on the current host
 
 1. Merged-source builds, maintained tests, formatting, dependency/license review, unsigned candidate inspection, and a final repository Standard security scan are complete.
-2. Fast and five-minute no-account GUI acceptance is complete, including cold start, single instance, four-workspace pressure, Keep active, grace-period convergence, workspace restoration, Renderer/GPU/Browser recovery, cache/reset APIs, tray, shortcut, second launch, exact Exit, and zero process/profile residue.
-3. One-host cold-start, memory, and WebView2 process measurements are recorded without extrapolation: 8 processes at burst, 7 after grace expiry, and 6 at stable pre-fault state.
-4. Light/150% DPI, minimum-window, keyboard/focus, and app-level UI Automation pass. The same suite exits successfully under temporary Dark, 200% text, reduced-motion, and transparency-off settings, with the original settings restored afterward.
+2. Fast and five-minute no-account GUI acceptance is complete for the retained-tab design, including five live pages, same-provider creation, rename, physical drag ordering, search, shortcuts, release/recreation, Renderer/GPU/Browser recovery, cache/reset APIs, tray, shortcut, second launch, exact Exit, and zero process/profile residue.
+3. One-host resource measurements are recorded without extrapolation: 10 WebView2 processes remained present across the five-minute interval; the exact working-set values are in the 2026-09-21 host record.
+4. Light/150% DPI, default and narrow split layouts, keyboard focus, release confirmation, dismissible status warnings, and app-level UI Automation pass for the current branch. The earlier temporary Dark/200% text/reduced-motion/transparency-off run has not been repeated against the retained-tab redesign.
 5. Fixed BMC and Forms URL contracts are source- and policy-tested. The user-visible system-browser launch remains a final manual interaction check so automated acceptance does not open external pages or inspect an existing browser profile.
 
 ## Gates that need accounts, another environment, or owner action
