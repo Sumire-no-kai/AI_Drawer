@@ -57,6 +57,9 @@ public sealed partial class MainPage : Page
     public MainPage()
     {
         InitializeComponent();
+        AddHandler(UIElement.PointerMovedEvent, new PointerEventHandler(WorkspaceTabDrag_PointerMoved), true);
+        AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler(WorkspaceTabDrag_PointerReleased), true);
+        AddHandler(UIElement.PointerCanceledEvent, new PointerEventHandler(WorkspaceTabDrag_PointerCanceled), true);
         foreach (var key in Enumerable.Range('A', 26).Select(value => ((char)value).ToString()))
         {
             ShortcutKeyComboBox.Items.Add(new ComboBoxItem { Content = key, Tag = key });
@@ -2025,6 +2028,9 @@ public sealed partial class MainPage : Page
         AnimateIn(StatusBanner);
     }
 
+    private void DismissStatusButton_Click(object sender, RoutedEventArgs e) =>
+        StatusBanner.Visibility = Visibility.Collapsed;
+
     private void ShowWorkspaceActivity(WorkspaceActivity activity, string title)
     {
         if (activity == WorkspaceActivity.Opening)
@@ -2136,7 +2142,9 @@ public sealed partial class MainPage : Page
             PromptTitle.Text = title;
             PromptMessage.Text = message;
             PromptPrimaryButton.Content = primaryButtonText;
+            AutomationProperties.SetName(PromptPrimaryButton, primaryButtonText);
             PromptSecondaryButton.Content = secondaryButtonText;
+            AutomationProperties.SetName(PromptSecondaryButton, secondaryButtonText ?? string.Empty);
             PromptSecondaryButton.Visibility = secondaryButtonText is null ? Visibility.Collapsed : Visibility.Visible;
             PromptRememberCheckBox.IsChecked = false;
             PromptRememberCheckBox.Visibility = showRememberChoice ? Visibility.Visible : Visibility.Collapsed;
