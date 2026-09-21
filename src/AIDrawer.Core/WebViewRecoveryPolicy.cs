@@ -13,7 +13,6 @@ public enum WebViewFailureKind
 
 public enum WebViewRecoveryAction
 {
-    ReleaseInactiveWorkspaces,
     WaitForRenderer,
     RequireManualRecovery,
     ReloadOnce,
@@ -45,7 +44,7 @@ public static class WebViewRecoveryPolicy
         return failureKind switch
         {
             WebViewFailureKind.OutOfMemory => new(
-                WebViewRecoveryAction.ReleaseInactiveWorkspaces,
+                WebViewRecoveryAction.RequireManualRecovery,
                 RequiresRecovery: true),
             WebViewFailureKind.RendererUnresponsive when previousUnresponsiveFailures == 0 => new(
                 WebViewRecoveryAction.WaitForRenderer,

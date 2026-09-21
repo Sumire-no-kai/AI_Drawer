@@ -1,5 +1,7 @@
 # ADR 0001: Separate workspace identity from WebView lifetime
 
+The automatic-disposal budget and Keep active policy below are superseded by [ADR 0003](0003-retained-conversation-tabs-and-split-view.md). Identity, provider profiles, and restricted locator privacy boundaries remain in force.
+
 ## Status
 
 Accepted — 2026-08-21

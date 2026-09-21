@@ -62,21 +62,8 @@ internal sealed record ProviderDefinition(
         return NavigationDisposition.OpenExternal;
     }
 
-    internal static Uri? CreateSafeExternalUri(string? rawUri)
-    {
-        if (!TryCreateSafeHttpsUri(rawUri, out var uri))
-        {
-            return null;
-        }
-
-        var builder = new UriBuilder(uri)
-        {
-            Query = string.Empty,
-            Fragment = string.Empty
-        };
-
-        return builder.Uri;
-    }
+    internal static Uri? CreateSafeExternalUri(string? rawUri, bool userInitiated = false) =>
+        ExternalReferencePolicy.CreateTarget(rawUri, userInitiated);
 
     internal PopupDisposition ClassifyPopup(string? rawUri)
     {

@@ -25,98 +25,59 @@ Check("no reviewed path means no locator", () =>
     Null(policy.Restrict("https://example.com/c/id"));
 });
 
-Check("grace keeps a bounded third live workspace", () =>
+Check("split selection replaces only the focused pane", () =>
 {
-    var now = DateTimeOffset.UtcNow;
-    var policy = new WorkspaceLifecyclePolicy(gracePeriod: TimeSpan.FromMinutes(5));
-    var states = new[]
-    {
-        new LiveWorkspaceState("active", true, false, now, now),
-        new LiveWorkspaceState("recent-1", false, false, now.AddMinutes(4), now.AddMinutes(-1)),
-        new LiveWorkspaceState("recent-2", false, false, now.AddMinutes(4), now.AddMinutes(-2))
-    };
-    Equal(0, policy.SelectForDisposal(states, now, false).Count);
+    var layout = new WorkspaceLayout("a", "b", "b");
+    Equal(new WorkspaceLayout("a", "c", "c"), layout.Select("c"));
+    Equal(new WorkspaceLayout("a", "b", "a"), layout.Select("a"));
 });
 
-Check("expired least-recent non-kept workspace is disposed first", () =>
+Check("pairing never places the same workspace in both panes", () =>
 {
-    var now = DateTimeOffset.UtcNow;
-    var policy = new WorkspaceLifecyclePolicy();
-    var states = new[]
-    {
-        new LiveWorkspaceState("active", true, false, now, now),
-        new LiveWorkspaceState("kept", false, true, now.AddMinutes(-1), now.AddMinutes(-10)),
-        new LiveWorkspaceState("ordinary", false, false, now.AddMinutes(-1), now.AddMinutes(-5))
-    };
-    Equal("ordinary", policy.SelectForDisposal(states, now, false).Single());
+    var layout = new WorkspaceLayout("a", null, "a");
+    Equal(layout, layout.PairWith("a"));
+    Equal(new WorkspaceLayout("a", "b", "b"), layout.PairWith("b"));
 });
 
-Check("hard limit can release a grace-protected workspace", () =>
+Check("ending split retains the focused page", () =>
 {
-    var now = DateTimeOffset.UtcNow;
-    var policy = new WorkspaceLifecyclePolicy();
-    var states = new[]
-    {
-        new LiveWorkspaceState("active", true, false, now, now),
-        new LiveWorkspaceState("old", false, false, now.AddMinutes(5), now.AddMinutes(-2)),
-        new LiveWorkspaceState("new", false, false, now.AddMinutes(5), now.AddMinutes(-1))
-    };
-    Equal("old", policy.SelectForDisposal(states, now, true).Single());
+    Equal(new WorkspaceLayout("b", null, "b"), new WorkspaceLayout("a", "b", "b").EndSplit());
 });
 
-Check("hard limit does not release a workspace with a protected operation", () =>
+Check("narrow layout keeps the pair but displays only focus", () =>
 {
-    var now = DateTimeOffset.UtcNow;
-    var policy = new WorkspaceLifecyclePolicy();
-    var states = new[]
-    {
-        new LiveWorkspaceState("active", true, false, now, now),
-        new LiveWorkspaceState("opening", false, false, now, now.AddMinutes(-2), true),
-        new LiveWorkspaceState("ordinary", false, false, now, now.AddMinutes(-1))
-    };
-    Equal("ordinary", policy.SelectForDisposal(states, now, true).Single());
+    var layout = new WorkspaceLayout("a", "b", "b");
+    Equal("b", string.Join(',', layout.VisibleWorkspaceIds(false)));
+    Equal("a,b", string.Join(',', layout.VisibleWorkspaceIds(true)));
 });
 
-Check("hard limit returns no victim when every inactive workspace has a protected operation", () =>
+Check("removing a pane normalizes focus and invalid references", () =>
 {
-    var now = DateTimeOffset.UtcNow;
-    var policy = new WorkspaceLifecyclePolicy();
-    var states = new[]
-    {
-        new LiveWorkspaceState("active", true, false, now, now),
-        new LiveWorkspaceState("permission", false, false, now, now.AddMinutes(-2), true),
-        new LiveWorkspaceState("download", false, false, now, now.AddMinutes(-1), true)
-    };
-    Equal(0, policy.SelectForDisposal(states, now, true).Count);
+    Equal(new WorkspaceLayout("b", null, "b"), new WorkspaceLayout("a", "b", "a").Normalize(["b"], "b"));
+    Equal(new WorkspaceLayout("a", null, "a"), new WorkspaceLayout("a", "b", "b").Normalize(["a"]));
+    Equal(new WorkspaceLayout(), new WorkspaceLayout("a", "b", "a").Normalize([]));
 });
 
-Check("memory pressure releases only safe inactive workspaces and keeps protected operations", () =>
+Check("layout rejects duplicate panes and invalid ratios", () =>
 {
-    var now = DateTimeOffset.UtcNow;
-    var policy = new WorkspaceLifecyclePolicy();
-    var states = new[]
-    {
-        new LiveWorkspaceState("failed", true, false, now, now),
-        new LiveWorkspaceState("navigation", false, false, now, now.AddMinutes(-10), true),
-        new LiveWorkspaceState("kept", false, true, now, now.AddMinutes(-9)),
-        new LiveWorkspaceState("ordinary", false, false, now, now.AddMinutes(-1))
-    };
-
-    Equal(
-        "ordinary,kept",
-        string.Join(',', policy.SelectForMemoryPressure(states, "failed")));
+    Equal(new WorkspaceLayout("a", null, "a"), new WorkspaceLayout("a", "a", "missing", double.NaN).Normalize(["a"]));
+    Equal(0.75, new WorkspaceLayout("a", "b", "a", 100).Normalize(["a", "b"]).PrimaryPaneRatio);
 });
 
-Check("memory pressure rejects an empty failed workspace id", () =>
+Check("reference links preserve explicit search parameters and code anchors", () =>
 {
-    Throws<ArgumentException>(() =>
-        _ = new WorkspaceLifecyclePolicy().SelectForMemoryPressure([], " "));
+    Equal("https://example.com/search?q=terms&page=2#section-1",
+        ExternalReferencePolicy.CreateTarget("https://example.com/search?q=terms&page=2&utm_source=ignored#section-1", true)?.AbsoluteUri);
+    Equal("https://example.com/file#L120-L130", ExternalReferencePolicy.CreateTarget("https://example.com/file#L120-L130", true)?.AbsoluteUri);
 });
 
-Check("negative grace period is rejected", () =>
+Check("reference links do not forward credentials or automatic navigation parameters", () =>
 {
-    Throws<ArgumentOutOfRangeException>(() =>
-        _ = new WorkspaceLifecyclePolicy(gracePeriod: TimeSpan.FromSeconds(-1)));
+    Equal("https://example.com/path", ExternalReferencePolicy.CreateTarget("https://example.com/path?q=x&code=secret#section", true)?.AbsoluteUri);
+    Equal("https://example.com/path", ExternalReferencePolicy.CreateTarget("https://example.com/path?q=x#section", false)?.AbsoluteUri);
+    Equal("https://example.com/path", ExternalReferencePolicy.CreateTarget("https://example.com/path#access_token=secret", true)?.AbsoluteUri);
+    Null(ExternalReferencePolicy.CreateTarget("http://example.com/path", true));
+    Null(ExternalReferencePolicy.CreateTarget("https://user@example.com/path", true));
 });
 
 Check("support reminder never appears during the first seven days", () =>
@@ -381,7 +342,7 @@ Check("WebView recovery policy preserves browser and memory boundaries", () =>
         new WebViewRecoveryDecision(WebViewRecoveryAction.RecreateBrowserEnvironment, false),
         WebViewRecoveryPolicy.Decide(WebViewFailureKind.BrowserExited, 0, 0));
     Equal(
-        new WebViewRecoveryDecision(WebViewRecoveryAction.ReleaseInactiveWorkspaces, true),
+        new WebViewRecoveryDecision(WebViewRecoveryAction.RequireManualRecovery, true),
         WebViewRecoveryPolicy.Decide(WebViewFailureKind.OutOfMemory, 0, 0));
     Equal(
         new WebViewRecoveryDecision(WebViewRecoveryAction.WaitForRenderer, false),

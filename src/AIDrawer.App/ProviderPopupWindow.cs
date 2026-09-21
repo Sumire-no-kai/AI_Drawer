@@ -109,7 +109,7 @@ internal sealed class ProviderPopupWindow : IDisposable
 
                 case NavigationDisposition.OpenExternal:
                     args.Cancel = true;
-                    RequestExternalNavigation(args.Uri);
+                    RequestExternalNavigation(args.Uri, args.IsUserInitiated && _provider.IsProviderAppUri(core.Source));
                     return;
 
                 case NavigationDisposition.BlockUnsupported:
@@ -188,7 +188,7 @@ internal sealed class ProviderPopupWindow : IDisposable
 
                 case PopupDisposition.OpenExternal:
                     args.Handled = true;
-                    RequestExternalNavigation(args.Uri);
+                    RequestExternalNavigation(args.Uri, args.IsUserInitiated && _provider.IsProviderAppUri(core.Source));
                     return;
 
                 case PopupDisposition.OpenControlledProviderWindow:
@@ -243,9 +243,9 @@ internal sealed class ProviderPopupWindow : IDisposable
         }
     }
 
-    private void RequestExternalNavigation(string? rawUri)
+    private void RequestExternalNavigation(string? rawUri, bool userInitiated)
     {
-        var uri = ProviderDefinition.CreateSafeExternalUri(rawUri);
+        var uri = ProviderDefinition.CreateSafeExternalUri(rawUri, userInitiated);
         if (uri is null)
         {
             _reportState(
