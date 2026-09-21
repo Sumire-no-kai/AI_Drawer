@@ -10,6 +10,11 @@
 | --- | --- | --- | --- | --- | --- | --- |
 | `gemini-20260820-01` | 2026-08-20 | `d9aa9be` | Windows `10.0.26200` x64 / WebView2 `151.0.4129.93` | Not recorded | Not recorded | Persistent profile; one manually operated session. |
 | `matrix-20260820-01` | 2026-08-20 | Not recorded | Windows build not re-recorded / WebView2 `151.0.4129.93` | Not recorded | Not recorded | Persistent provider profiles; one manually operated sweep. Sanitized origin-only event log and user observations were recorded. |
+| `guest-20260921-01` | 2026-09-21 | `a7d9b5e` | Windows `10.0.26200.9457` x64 / WebView2 `153.0.4234.48` | Australia | No account | Fresh isolated profiles; ChatGPT, Gemini, and Claude visual guest observations only. No sign-in/out, DOM, cookie, token, response capture, or network trace. |
+
+## 2026-09-21 guest-only continuity observation
+
+This run was deliberately narrower than the compatibility Gate and does not change provider status labels. ChatGPT completed one guest exchange and kept the rendered conversation across tab switches and ChatGPT/Gemini split-layout changes. Gemini loaded and accepted a guest submission, then presented a sign-in card instead of a completed guest response. Claude opened its sign-in page; no authentication action was taken. The app's native warning for a Claude third-party frame could be dismissed after review without modifying the provider page. Upload, download, permissions, popups, purchase paths, history, account sharing, and restart persistence were not run.
 
 ## Provider status
 
