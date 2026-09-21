@@ -57,7 +57,7 @@ try
     await CheckAsync("newer schema is not interpreted or overwritten", async () =>
     {
         await WriteSessionAsync("""
-            { "SchemaVersion": 2, "ActiveWorkspaceId": null, "Workspaces": [] }
+            { "SchemaVersion": 3, "ActiveWorkspaceId": null, "Workspaces": [] }
             """);
 
         var store = new WorkspaceSessionStore();
@@ -142,6 +142,51 @@ try
         Equal(WorkspaceSession.MaximumWorkspaceCount, persisted!.Workspaces.Count);
         Null(persisted.ActiveWorkspaceId);
         False(File.Exists($"{sessionPath}.tmp"));
+    });
+
+    await CheckAsync("version one sessions gain a layout without losing their original record", async () =>
+    {
+        await DeleteDirectoryWhenReleasedAsync(appDataRoot);
+        const string original = """
+            { "SchemaVersion": 1, "ActiveWorkspaceId": "old", "Workspaces": [
+              { "Id": "old", "DisplayName": "Original tab", "ProviderId": "chatgpt", "KeepActive": true }
+            ] }
+            """;
+        await WriteSessionAsync(original);
+        var store = new WorkspaceSessionStore();
+        var result = await store.LoadSessionAsync();
+        Equal(SessionLoadStatus.Loaded, result.Status);
+        Equal(new WorkspaceLayout("old", null, "old"), result.Session.Layout);
+        var provider = ProviderCatalog.AvailableProviders.Single(item => item.Id == "chatgpt");
+        var tab = new WorkspaceTab("old", "Original tab", provider, provider.Id, true, null);
+        await store.SaveSessionAsync([tab], tab.Id, false, result.Session.Layout);
+        Equal(original, await File.ReadAllTextAsync(Directory.GetFiles(appDataRoot, "*.recovery-backup.json").Single()));
+        Equal(2, JsonSerializer.Deserialize<WorkspaceSession>(await File.ReadAllTextAsync(sessionPath))!.SchemaVersion);
+    });
+
+    await CheckAsync("tab order names and split layout round trip independently of provider identity", async () =>
+    {
+        await DeleteDirectoryWhenReleasedAsync(appDataRoot);
+        var session = new WorkspaceSessionController();
+        var provider = ProviderCatalog.AvailableProviders.Single(item => item.Id == "chatgpt");
+        var first = new WorkspaceTab("first", "First", provider, provider.Id, false, null);
+        var second = new WorkspaceTab("second", "Second", provider, provider.Id, false, null);
+        session.Add(first);
+        session.Add(second);
+        session.Select(first.Id);
+        session.PairWith(second.Id);
+        first.Rename("Drafting");
+        session.Move(second.Id, 0);
+        session.SetPaneRatio(0.4);
+        await session.SaveAsync(false, new HashSet<string>());
+        var restored = await session.Store.LoadSessionAsync();
+        Equal(SessionLoadStatus.Loaded, restored.Status);
+        Equal("second,first", string.Join(',', restored.Session.Workspaces.Select(tab => tab.Id)));
+        Equal("Drafting", restored.Session.Workspaces[1].DisplayName);
+        Equal(new WorkspaceLayout("first", "second", "second", 0.4), restored.Session.Layout);
+        session.Remove("second");
+        Equal("first", session.FocusedWorkspace?.Id);
+        False(session.Layout.IsSplit);
     });
 
     await CheckAsync("MVP shell settings survive a local save and load round trip", async () =>
@@ -295,7 +340,7 @@ try
         return Task.CompletedTask;
     });
 
-    await CheckAsync("home provider choices expose complete shortcuts and scoped hover feedback", () =>
+    await CheckAsync("home provider choices expose tab shortcuts and scoped hover feedback", () =>
     {
         var document = XDocument.Load(GetRepositoryPath("src", "AIDrawer.App", "MainPage.xaml"));
         XNamespace xaml = "http://schemas.microsoft.com/winfx/2006/xaml";
@@ -366,7 +411,7 @@ try
                 && string.Equals(element.Attribute("Invoked")?.Value, "ProviderShortcut_Invoked", StringComparison.Ordinal)));
         True(document
             .Descendants()
-            .Any(element => string.Equals(element.Attribute("Text")?.Value, "Ctrl+1–9", StringComparison.Ordinal)));
+            .Any(element => string.Equals(element.Attribute("Text")?.Value, "Ctrl+1–9 switches tabs", StringComparison.Ordinal)));
         True(document
             .Descendants()
             .Any(element => string.Equals(element.Attribute("SizeChanged")?.Value, "ProviderChooser_SizeChanged", StringComparison.Ordinal)));
@@ -418,9 +463,9 @@ try
 
         var mainPageCode = File.ReadAllText(GetRepositoryPath("src", "AIDrawer.App", "MainPage.xaml.cs"));
         False(mainPageCode.Contains("CreateProviderMark", StringComparison.Ordinal));
-        True(mainPageCode.Contains("Keyboard shortcut Ctrl+", StringComparison.Ordinal));
+        True(mainPageCode.Contains("Opens a new provider page in this tab.", StringComparison.Ordinal));
         True(mainPageCode.Contains("Glyph = \"\\uE76C\"", StringComparison.Ordinal));
-        True(mainPageCode.Contains("VirtualKey.Number9 => 8", StringComparison.Ordinal));
+        True(mainPageCode.Contains("await SelectWorkspaceAsync(_workspaces[index].Id)", StringComparison.Ordinal));
         True(mainPageCode.Contains("https://forms.cloud.microsoft/r/WLQySVad7g", StringComparison.Ordinal));
         True(mainPageCode.Contains(
             "HomeContentContainer.Width = Math.Min(args.NewSize.Width, HomeContentMaxWidth);",
@@ -534,7 +579,7 @@ try
         {
             await DeleteDirectoryWhenReleasedAsync(appDataRoot);
             await WorkspaceSessionStore.SaveSettingsAsync(new AppSettings(
-                OnboardingVersion: 2,
+                OnboardingVersion: 3,
                 FirstUsedUtc: DateTimeOffset.UtcNow.AddDays(-8),
                 SuccessfulOpenCount: SupportReminderPolicy.SuccessfulOpenThreshold,
                 GlobalShortcut: new GlobalShortcutSettings(Enabled: false),
@@ -595,7 +640,7 @@ try
 
             await DeleteDirectoryWhenReleasedAsync(appDataRoot);
             await WorkspaceSessionStore.SaveSettingsAsync(new AppSettings(
-                OnboardingVersion: 2,
+                OnboardingVersion: 3,
                 FirstUsedUtc: DateTimeOffset.UtcNow.AddDays(-8),
                 SuccessfulOpenCount: SupportReminderPolicy.SuccessfulOpenThreshold,
                 GlobalShortcut: new GlobalShortcutSettings(Enabled: false),
@@ -710,7 +755,7 @@ try
         {
             await DeleteDirectoryWhenReleasedAsync(appDataRoot);
             await WorkspaceSessionStore.SaveSettingsAsync(new AppSettings(
-                OnboardingVersion: 2,
+                OnboardingVersion: 3,
                 GlobalShortcut: new GlobalShortcutSettings(Enabled: false),
                 CloseToTray: true,
                 AlwaysOnTop: false));

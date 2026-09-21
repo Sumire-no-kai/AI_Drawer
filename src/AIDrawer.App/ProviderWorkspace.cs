@@ -28,6 +28,8 @@ internal sealed class ProviderWorkspace : IDisposable
     private bool _shouldExplainHomeFallback;
     private bool _isCreatingWebView;
     private bool _disposed;
+    private bool _isPresented;
+    private bool _windowIsVisible = true;
     private int _renderRecoveryAttempts;
     private int _unresponsiveFailureCount;
 
@@ -35,7 +37,6 @@ internal sealed class ProviderWorkspace : IDisposable
         string workspaceId,
         ProviderDefinition provider,
         Uri? restoreLocator,
-        bool keepActive,
         bool shouldExplainHomeFallback,
         Func<PermissionRequest, Task<PermissionDecision>> requestPermissionAsync,
         Func<DownloadRequest, Task<DownloadDecision>> requestDownloadAsync)
@@ -44,11 +45,11 @@ internal sealed class ProviderWorkspace : IDisposable
         Provider = provider;
         _restoreLocator = provider.CreateRestoreLocator(restoreLocator?.AbsoluteUri);
         _inMemoryNavigationTarget = _restoreLocator;
-        KeepActive = keepActive;
         _shouldExplainHomeFallback = shouldExplainHomeFallback && _restoreLocator is null;
         _requestPermissionAsync = requestPermissionAsync;
         _downloadController = new WebViewDownloadController(requestDownloadAsync);
         _host.Visibility = Visibility.Collapsed;
+        _host.GotFocus += (_, _) => FocusRequested?.Invoke(this, WorkspaceId);
     }
 
     internal event EventHandler<WorkspaceStateChangedEventArgs>? StateChanged;
@@ -63,7 +64,8 @@ internal sealed class ProviderWorkspace : IDisposable
 
     internal event EventHandler<NavigationPromptRequestedEventArgs>? NavigationPromptRequested;
 
-    internal event EventHandler? OperationCompleted;
+
+    internal event EventHandler<string>? FocusRequested;
 
     internal event EventHandler<uint>? BrowserProcessAvailable;
 
@@ -91,22 +93,12 @@ internal sealed class ProviderWorkspace : IDisposable
         return _restoreLocator;
     }
 
-    internal bool KeepActive { get; private set; }
-
-    internal DateTimeOffset ProtectedUntil { get; private set; }
-
-    internal DateTimeOffset LastActivated { get; private set; }
-
-    internal async Task<bool> ActivateAsync(CoreWebView2Environment environment, bool windowIsVisible)
+    internal async Task<bool> EnsureCreatedAsync(CoreWebView2Environment environment)
     {
         ThrowIfDisposed();
-        _host.Visibility = Visibility.Visible;
-        LastActivated = DateTimeOffset.UtcNow;
-
         if (_webView?.CoreWebView2 is null)
         {
-            var created = await CreateWebViewAsync(
-                environment,
+            var created = await CreateWebViewAsync(environment,
                 _inMemoryNavigationTarget ?? _restoreLocator ?? Provider.HomeUri);
             if (!created)
             {
@@ -114,41 +106,27 @@ internal sealed class ProviderWorkspace : IDisposable
                 {
                     RaiseLifecycle(WorkspaceLifecyclePhase.Disposed);
                 }
-
                 return false;
             }
         }
-
-        SetMemoryTarget(windowIsVisible
-            ? CoreWebView2MemoryUsageTargetLevel.Normal
-            : CoreWebView2MemoryUsageTargetLevel.Low);
-        RaiseLifecycle(WorkspaceLifecyclePhase.Active);
-        ReplayLastState();
+        SetPresentation(_isPresented, _windowIsVisible);
         return true;
     }
 
-    internal void Deactivate(TimeSpan gracePeriod)
+    internal void SetPresentation(bool isPresented, bool windowIsVisible)
     {
-        _host.Visibility = Visibility.Collapsed;
-        if (!IsLive)
+        _isPresented = isPresented;
+        _windowIsVisible = windowIsVisible;
+        _host.Visibility = isPresented ? Visibility.Visible : Visibility.Collapsed;
+        if (IsLive)
         {
-            RaiseLifecycle(WorkspaceLifecyclePhase.Disposed);
-            return;
+            SetMemoryTarget(isPresented && windowIsVisible
+                ? CoreWebView2MemoryUsageTargetLevel.Normal : CoreWebView2MemoryUsageTargetLevel.Low);
+            RaiseLifecycle(isPresented ? WorkspaceLifecyclePhase.Active : WorkspaceLifecyclePhase.Recent);
         }
-
-        ProtectedUntil = DateTimeOffset.UtcNow.Add(gracePeriod);
-        SetMemoryTarget(CoreWebView2MemoryUsageTargetLevel.Low);
-        RaiseLifecycle(WorkspaceLifecyclePhase.Recent);
     }
 
-    internal void SetKeepActive(bool keepActive) => KeepActive = keepActive;
-
-    internal void SetWindowVisibility(bool isVisible)
-    {
-        SetMemoryTarget(isVisible
-            ? CoreWebView2MemoryUsageTargetLevel.Normal
-            : CoreWebView2MemoryUsageTargetLevel.Low);
-    }
+    internal void ReplayState() => ReplayLastState();
 
     internal bool Reload()
     {
@@ -173,7 +151,7 @@ internal sealed class ProviderWorkspace : IDisposable
         }
     }
 
-    internal async Task<bool> RestartAsync(CoreWebView2Environment environment, bool windowIsVisible)
+    internal async Task<bool> RestartAsync(CoreWebView2Environment environment)
     {
         ThrowIfDisposed();
         RaiseState(
@@ -182,7 +160,7 @@ internal sealed class ProviderWorkspace : IDisposable
             InfoBarSeverity.Informational,
             activity: WorkspaceActivity.Opening);
         CloseWebView();
-        return await ActivateAsync(environment, windowIsVisible);
+        return await EnsureCreatedAsync(environment);
     }
 
     internal void DisposeView()
@@ -192,6 +170,14 @@ internal sealed class ProviderWorkspace : IDisposable
         CloseWebView();
         _host.Visibility = Visibility.Collapsed;
         RaiseLifecycle(WorkspaceLifecyclePhase.Disposed);
+    }
+
+    internal void ReleasePage()
+    {
+        DisposeView();
+        RaiseState("Page released",
+            "Select this tab again to reload its available conversation address. Unsent page state was not saved.",
+            InfoBarSeverity.Informational, requiresRecovery: true);
     }
 
     internal void ClearPersistedRestoreLocator()
@@ -205,25 +191,6 @@ internal sealed class ProviderWorkspace : IDisposable
         _inMemoryNavigationTarget = null;
         ClearPersistedRestoreLocator();
     }
-
-    internal void ReportCapacityBlocked()
-    {
-        RaiseState(
-            "Workspace needs a safe memory slot",
-            "Other workspaces are completing navigation, a permission request, or a download. AI Drawer will retry this workspace automatically when a safe slot becomes available.",
-            InfoBarSeverity.Warning,
-            requiresRecovery: true);
-        if (!IsLive)
-        {
-            RaiseLifecycle(WorkspaceLifecyclePhase.Disposed);
-        }
-    }
-
-    internal void ReportCapacityRetrying() => RaiseState(
-        $"Opening {Provider.DisplayName}",
-        "A protected operation finished, so AI Drawer is retrying this workspace without interrupting the other workspaces.",
-        InfoBarSeverity.Informational,
-        activity: WorkspaceActivity.Opening);
 
     internal void ReportEnvironmentFailure(Exception exception)
     {
@@ -316,7 +283,7 @@ internal sealed class ProviderWorkspace : IDisposable
 
                 case NavigationDisposition.OpenExternal:
                     args.Cancel = true;
-                    RequestExternalNavigation(args.Uri);
+                    RequestExternalNavigation(args.Uri, args.IsUserInitiated && Provider.IsProviderAppUri(core.Source));
                     return;
 
                 case NavigationDisposition.BlockUnsupported:
@@ -421,7 +388,7 @@ internal sealed class ProviderWorkspace : IDisposable
 
                 case PopupDisposition.OpenExternal:
                     args.Handled = true;
-                    RequestExternalNavigation(args.Uri);
+                    RequestExternalNavigation(args.Uri, args.IsUserInitiated && Provider.IsProviderAppUri(core.Source));
                     return;
 
                 default:
@@ -470,7 +437,6 @@ internal sealed class ProviderWorkspace : IDisposable
             finally
             {
                 _pendingPermissionRequests.Remove(requestId);
-                OperationCompleted?.Invoke(this, EventArgs.Empty);
             }
         };
 
@@ -501,7 +467,6 @@ internal sealed class ProviderWorkspace : IDisposable
             }
 
             _pendingNavigations.Remove(args.NavigationId);
-            OperationCompleted?.Invoke(this, EventArgs.Empty);
 
             if (args.IsSuccess)
             {
@@ -562,13 +527,7 @@ internal sealed class ProviderWorkspace : IDisposable
                     kind,
                     externalUri,
                     originatesFromControlledPopup: true),
-                closed =>
-                {
-                    if (_popupWindows.Remove(closed))
-                    {
-                        OperationCompleted?.Invoke(this, EventArgs.Empty);
-                    }
-                },
+                closed => _popupWindows.Remove(closed),
                 _downloadController);
             if (popup is null || !IsCurrent(sourceCore))
             {
@@ -621,7 +580,7 @@ internal sealed class ProviderWorkspace : IDisposable
                 _renderRecoveryAttempts);
             RaiseState(
                 $"{Provider.DisplayName} ran out of memory",
-                "AI Drawer will release eligible inactive workspaces, but will not interrupt workspaces handling a navigation, permission, download, or popup. It will not reload this page in a loop.",
+                "Other pages were kept open. Release pages you no longer need before retrying this page. AI Drawer will not reload it in a loop.",
                 InfoBarSeverity.Error,
                 requiresRecovery: decision.RequiresRecovery);
             ProcessFailure?.Invoke(this, new WorkspaceProcessFailureEventArgs(WorkspaceId, WorkspaceProcessFailureKind.OutOfMemory));
@@ -727,9 +686,9 @@ internal sealed class ProviderWorkspace : IDisposable
         }
     }
 
-    private void RequestExternalNavigation(string? rawUri)
+    private void RequestExternalNavigation(string? rawUri, bool userInitiated)
     {
-        var externalUri = ProviderDefinition.CreateSafeExternalUri(rawUri);
+        var externalUri = ProviderDefinition.CreateSafeExternalUri(rawUri, userInitiated);
         if (externalUri is null)
         {
             RaiseState(
@@ -741,7 +700,7 @@ internal sealed class ProviderWorkspace : IDisposable
 
         RaiseState(
             "External link needs confirmation",
-            "AI Drawer did not open this unreviewed origin. You can choose whether to open a sanitized link in your browser.",
+            "Choose whether to open this external destination in your browser. Reviewed reference parameters may be retained for links you selected.",
             InfoBarSeverity.Informational);
         RequestNavigationPrompt(NavigationPromptKind.ExternalLink, externalUri);
     }
@@ -891,7 +850,6 @@ internal sealed class ProviderWorkspace : IDisposable
         {
             _pendingDownloadRequests.Remove(requestId);
             deferral.Dispose();
-            OperationCompleted?.Invoke(this, EventArgs.Empty);
         }
     }
 
@@ -908,7 +866,6 @@ internal sealed class ProviderWorkspace : IDisposable
                 // The download may already have released its COM event source.
             }
 
-            OperationCompleted?.Invoke(this, EventArgs.Empty);
         }
     }
 

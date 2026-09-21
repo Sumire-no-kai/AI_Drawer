@@ -66,7 +66,16 @@ internal sealed class WorkspaceTab
             : $"{provider.WorkspaceLabel} {providerWorkspaceNumber}";
     }
 
-    internal void SetKeepActive(bool keepActive) => KeepActive = keepActive;
+    internal void Rename(string displayName)
+    {
+        var name = displayName.Trim();
+        if (name.Length is < 1 or > 100 || name.Any(char.IsControl))
+        {
+            throw new ArgumentException("Use a label of 1 to 100 characters without control characters.", nameof(displayName));
+        }
+
+        DisplayName = name;
+    }
 
     internal void SetRestoreLocator(Uri? restoreLocator) => RestoreLocator = restoreLocator;
 

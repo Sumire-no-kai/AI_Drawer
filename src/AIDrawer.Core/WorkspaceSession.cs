@@ -3,9 +3,10 @@ namespace AIDrawer.Core;
 public sealed record WorkspaceSession(
     int SchemaVersion,
     string? ActiveWorkspaceId,
-    IReadOnlyList<ConversationWorkspaceSnapshot> Workspaces)
+    IReadOnlyList<ConversationWorkspaceSnapshot> Workspaces,
+    WorkspaceLayout? Layout = null)
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
     public const int MaximumWorkspaceCount = 100;
 }
 

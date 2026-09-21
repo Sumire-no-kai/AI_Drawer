@@ -25,7 +25,7 @@ public sealed partial class MainPage : Page
         typeof(MainPage).Assembly.GetName().Version?.Major is > 0 and var majorRelease
             ? majorRelease
             : 1);
-    private const int CurrentOnboardingVersion = 2;
+    private const int CurrentOnboardingVersion = 3;
     private const double HomeContentMaxWidth = 688;
     private const double HomeSupportActionsVerticalThreshold = 420;
     private const double ProviderChooserSingleColumnThreshold = 540;
@@ -34,13 +34,15 @@ public sealed partial class MainPage : Page
     private readonly HashSet<string> _externalPromptWorkspaceIds = new(StringComparer.Ordinal);
     private readonly Queue<NavigationPromptRequestedEventArgs> _navigationPrompts = new();
     private readonly HashSet<string> _purchasePromptWorkspaceIds = new(StringComparer.Ordinal);
-    private readonly List<WorkspaceTab> _workspaces = [];
+    private readonly WorkspaceSessionController _session = new();
+    private IReadOnlyList<WorkspaceTab> _workspaces => _session.Workspaces;
     private readonly UISettings _uiSettings = new();
-    private readonly WorkspaceSessionStore _sessionStore = new();
+    private WorkspaceSessionStore _sessionStore => _session.Store;
     private WindowsShellModule? _shell;
     private WorkspaceCoordinator? _workspaceCoordinator;
-    private WorkspaceTab? _activeWorkspace;
+    private WorkspaceTab? _activeWorkspace => _session.FocusedWorkspace;
     private AppSettings _settings = new();
+    private readonly SemaphoreSlim _promptQueue = new(1, 1);
     private TaskCompletionSource<PromptDecision>? _promptCompletion;
     private TaskCompletionSource<SessionRecoveryDecision>? _sessionRecoveryCompletion;
     private PageLifecycleState _pageState;
@@ -104,6 +106,7 @@ public sealed partial class MainPage : Page
             return;
         }
 
+        coordinator.FocusRequested -= Workspace_FocusRequested;
         coordinator.StateChanged -= Workspace_StateChanged;
         coordinator.RestoreLocatorChanged -= Workspace_RestoreLocatorChanged;
         coordinator.LifecycleChanged -= Workspace_LifecycleChanged;
@@ -207,8 +210,8 @@ public sealed partial class MainPage : Page
         _workspaceCoordinator = new WorkspaceCoordinator(
             WebViewHost,
             RequestPermissionAsync,
-            RequestDownloadAsync,
-            _settings.MemoryMode);
+            RequestDownloadAsync);
+        _workspaceCoordinator.FocusRequested += Workspace_FocusRequested;
         _workspaceCoordinator.StateChanged += Workspace_StateChanged;
         _workspaceCoordinator.RestoreLocatorChanged += Workspace_RestoreLocatorChanged;
         _workspaceCoordinator.LifecycleChanged += Workspace_LifecycleChanged;
@@ -266,17 +269,19 @@ public sealed partial class MainPage : Page
             _externalPromptWorkspaceIds.Clear();
             _purchasePromptWorkspaceIds.Clear();
             DisposeWorkspace();
-            _workspaces.Clear();
+            _session.Clear();
+            _workspaceStates.Clear();
             _closingWorkspaceIds.Clear();
             _workspaceTabViews.Clear();
             WorkspaceTabs.Children.Clear();
-            _activeWorkspace = null;
             _pageState = PageLifecycleState.Unloaded;
         }
     }
 
     private void Workspace_StateChanged(object? sender, WorkspaceStateChangedEventArgs args)
     {
+        _workspaceStates[args.WorkspaceId] = args;
+        UpdatePaneHeaders();
         if (_pageState != PageLifecycleState.Ready
             || !string.Equals(_activeWorkspace?.Id, args.WorkspaceId, StringComparison.Ordinal))
         {
@@ -352,7 +357,7 @@ public sealed partial class MainPage : Page
     {
         if (_pageState != PageLifecycleState.Ready
             || (!args.OriginatesFromControlledPopup
-                && !string.Equals(_activeWorkspace?.Id, args.WorkspaceId, StringComparison.Ordinal))
+                && !CanPromptForWorkspace(args.WorkspaceId))
             || args.Kind == NavigationPromptKind.ExternalLink && args.ExternalUri is null)
         {
             return;
@@ -400,7 +405,7 @@ public sealed partial class MainPage : Page
 
                     if (_pageState != PageLifecycleState.Ready
                         || (!request.OriginatesFromControlledPopup
-                            && !string.Equals(_activeWorkspace?.Id, request.WorkspaceId, StringComparison.Ordinal)))
+                            && !CanPromptForWorkspace(request.WorkspaceId)))
                     {
                         continue;
                     }
@@ -422,13 +427,13 @@ public sealed partial class MainPage : Page
 
                     var decision = await ShowPromptAsync(
                         "Open external link in your browser?",
-                        $"Destination: {externalUri.GetLeftPart(UriPartial.Authority)}\n\nThis destination is outside the reviewed provider and authentication origins. AI Drawer removed query parameters and fragments before this optional browser handoff.",
+                        $"Destination: {externalUri.GetLeftPart(UriPartial.Authority)}\n\nFor a link you selected, reviewed search/document parameters and plain section anchors may be retained. Other parameters are removed. This one-time destination is not saved by AI Drawer.",
                         "Open in browser",
                         "Stay in AI Drawer");
                     if (decision.IsPrimary
                         && _pageState == PageLifecycleState.Ready
                         && (request.OriginatesFromControlledPopup
-                            || string.Equals(_activeWorkspace?.Id, request.WorkspaceId, StringComparison.Ordinal)))
+                            || CanPromptForWorkspace(request.WorkspaceId)))
                     {
                         await LaunchExternalUriAsync(externalUri);
                     }
@@ -595,16 +600,27 @@ public sealed partial class MainPage : Page
         }
     }
 
-    private async void NewWorkspaceButton_Click(object sender, RoutedEventArgs e) => await CreateWorkspaceAsync();
+    private async void NewWorkspaceButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (CanEditWorkspaces)
+        {
+            await CreateWorkspaceAsync();
+        }
+    }
 
     private async void NewWorkspaceShortcut_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
         args.Handled = true;
-        if (_promptCompletion is not null)
+        if (!CanEditWorkspaces)
         {
             return;
         }
 
+        if (sender.Key == VirtualKey.T && _activeWorkspace?.ProviderId is { } providerId)
+        {
+            await NewProviderTabAsync(providerId);
+            return;
+        }
         await CreateWorkspaceAsync();
     }
 
@@ -618,10 +634,8 @@ public sealed partial class MainPage : Page
 
     private async void CloseWorkspaceTab_Click(object sender, RoutedEventArgs e)
     {
-        if (_pageState != PageLifecycleState.Ready
-            || _providerResetInProgress is not null
+        if (!CanEditWorkspaces
             || sender is not Button { Tag: string workspaceId }
-            || _workspaces.Count - _closingWorkspaceIds.Count <= 1
             || _workspaces.FirstOrDefault(workspace => workspace.Id == workspaceId) is not { } workspace
             || !_workspaceTabViews.TryGetValue(workspace.Id, out var tabView)
             || !tabView.Close.IsEnabled
@@ -651,7 +665,8 @@ public sealed partial class MainPage : Page
                 return;
             }
         }
-        _workspaces.Remove(workspace);
+        _session.Remove(workspace.Id);
+        _workspaceStates.Remove(workspace.Id);
 
         if (_workspaceTabViews.Remove(workspace.Id))
         {
@@ -659,13 +674,9 @@ public sealed partial class MainPage : Page
         }
 
         _closingWorkspaceIds.Remove(workspace.Id);
+        EnsureHomeWorkspace();
         UpdateCloseButtonVisibility();
-        await PersistSessionAsync();
-        if (ReferenceEquals(workspace, _activeWorkspace))
-        {
-            var fallback = _workspaces.Last(candidate => !_closingWorkspaceIds.Contains(candidate.Id));
-            await SelectWorkspaceAsync(fallback.Id);
-        }
+        await ApplyWorkspaceLayoutAsync();
     }
 
     private async void ProviderChoice_Click(object sender, RoutedEventArgs e)
@@ -678,55 +689,21 @@ public sealed partial class MainPage : Page
 
     private async void ProviderShortcut_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
     {
-        if (_promptCompletion is not null)
-        {
-            args.Handled = true;
-            return;
-        }
-
-        var providerIndex = sender.Key switch
-        {
-            VirtualKey.Number1 => 0,
-            VirtualKey.Number2 => 1,
-            VirtualKey.Number3 => 2,
-            VirtualKey.Number4 => 3,
-            VirtualKey.Number5 => 4,
-            VirtualKey.Number6 => 5,
-            VirtualKey.Number7 => 6,
-            VirtualKey.Number8 => 7,
-            VirtualKey.Number9 => 8,
-            _ => -1
-        };
-
-        if (_workspaceCoordinator is null || providerIndex < 0 || providerIndex >= WorkspaceCoordinator.Providers.Count)
-        {
-            return;
-        }
-
         args.Handled = true;
-        var provider = WorkspaceCoordinator.Providers[providerIndex];
-        var existingWorkspace = _workspaces.LastOrDefault(workspace => workspace.Provider?.Id == provider.Id);
-        if (existingWorkspace is not null)
+        if (!CanEditWorkspaces)
         {
-            await SelectWorkspaceAsync(existingWorkspace.Id);
             return;
         }
-
-        if (_activeWorkspace?.IsHome == true)
+        var index = (int)sender.Key - (int)VirtualKey.Number1;
+        if (index >= 0 && index < _workspaces.Count)
         {
-            await OpenProviderInActiveWorkspaceAsync(provider.Id);
-            return;
-        }
-
-        if (await CreateWorkspaceAsync() is { } newWorkspace)
-        {
-            await OpenProviderInWorkspaceAsync(newWorkspace, provider.Id);
+            await SelectWorkspaceAsync(_workspaces[index].Id);
         }
     }
 
     internal async Task OpenDefaultProviderAsync()
     {
-        if (_pageState != PageLifecycleState.Ready)
+        if (!CanEditWorkspaces)
         {
             return;
         }
@@ -1070,7 +1047,7 @@ public sealed partial class MainPage : Page
         }
 
         var workspace = new WorkspaceTab(GetNextHomeWorkspaceNumber());
-        _workspaces.Add(workspace);
+        _session.Add(workspace);
         AddWorkspaceTab(workspace);
         UpdateCloseButtonVisibility();
         await SelectWorkspaceAsync(workspace.Id);
@@ -1125,93 +1102,16 @@ public sealed partial class MainPage : Page
 
     private async Task SelectWorkspaceAsync(string workspaceId)
     {
-        if (_pageState != PageLifecycleState.Ready
-            || _providerResetInProgress is not null
-            || _workspaceCoordinator is not { } coordinator
-            || _closingWorkspaceIds.Contains(workspaceId)
-            || _workspaces.FirstOrDefault(workspace => workspace.Id == workspaceId) is not { } workspace)
+        if (!CanEditWorkspaces || _closingWorkspaceIds.Contains(workspaceId) || _session.Find(workspaceId) is null)
         {
             return;
         }
-
-        var selectionVersion = ++_selectionVersion;
-        _activeWorkspace = workspace;
-        UpdateProviderDataSettingsUi();
-        UpdateWorkspaceTabSelection();
-        HideWorkspaceActivity();
-        RecoveryPanel.Visibility = Visibility.Collapsed;
-        WorkspaceActionsButton.IsEnabled = false;
-
-        if (workspace.IsHome)
+        _session.Select(workspaceId);
+        if (_activeWorkspace is { IsHome: true } or { IsProviderUnavailable: true })
         {
-            await coordinator.DeactivateActiveWorkspaceAsync();
-            if (!IsCurrentSelection(selectionVersion, workspace))
-            {
-                return;
-            }
-
-            HomePanel.Visibility = Visibility.Visible;
-            WebViewHost.Visibility = Visibility.Collapsed;
-            AnimateIn(HomePanel);
-            CompatibilityStatusText.Visibility = Visibility.Collapsed;
-            StatusBanner.Visibility = Visibility.Collapsed;
-            UpdateSupportReminderVisibility();
-            await PersistSessionAsync();
-            return;
+            _session.EndSplit();
         }
-
-        if (workspace.IsProviderUnavailable)
-        {
-            await coordinator.DeactivateActiveWorkspaceAsync();
-            if (!IsCurrentSelection(selectionVersion, workspace))
-            {
-                return;
-            }
-
-            HomePanel.Visibility = Visibility.Collapsed;
-            WebViewHost.Visibility = Visibility.Collapsed;
-            CompatibilityStatusText.Visibility = Visibility.Collapsed;
-            HomeSupportReminder.Visibility = Visibility.Collapsed;
-            ShowStatus(
-                "Workspace provider unavailable",
-                $"AI Drawer preserved this workspace, but its provider definition '{workspace.ProviderId}' is not available in this build.",
-                InfoBarSeverity.Warning);
-            await PersistSessionAsync();
-            return;
-        }
-
-        HomePanel.Visibility = Visibility.Collapsed;
-        WebViewHost.Visibility = Visibility.Visible;
-        AnimateIn(WebViewHost);
-        var provider = workspace.Provider ?? throw new InvalidOperationException("A non-home workspace must have a provider.");
-        CompatibilityStatusText.Text = provider.CompatibilityStatus;
-        CompatibilityStatusText.Visibility = Visibility.Visible;
-        ReloadActionText.Text = $"Reload {provider.DisplayName}";
-        RestartActionText.Text = $"Restart {provider.DisplayName} workspace";
-        _updatingSettingsUi = true;
-        KeepActiveToggle.IsOn = workspace.KeepActive;
-        _updatingSettingsUi = false;
-        HomeSupportReminder.Visibility = Visibility.Collapsed;
-        var activated = await coordinator.ActivateAsync(
-            workspace.Id,
-            provider,
-            _settings.RestoreExactWorkspace ? workspace.RestoreLocator : null,
-            workspace.KeepActive,
-            _settings.RestoreExactWorkspace && workspace.ShouldExplainHomeFallback);
-        if (!IsCurrentSelection(selectionVersion, workspace))
-        {
-            return;
-        }
-
-        if (activated
-            && _settings.RestoreExactWorkspace
-            && coordinator.TryPromoteCommittedRestoreLocator(workspace.Id, out var restoreLocator))
-        {
-            workspace.SetRestoreLocator(restoreLocator);
-        }
-
-        WorkspaceActionsButton.IsEnabled = activated;
-        await PersistSessionAsync();
+        await ApplyWorkspaceLayoutAsync(workspaceId);
     }
 
     private bool IsCurrentSelection(long selectionVersion, WorkspaceTab workspace) =>
@@ -1276,7 +1176,7 @@ public sealed partial class MainPage : Page
                 VerticalAlignment = VerticalAlignment.Center,
                 Child = new TextBlock
                 {
-                    Text = $"Ctrl+{providerIndex + 1}",
+                    Text = "Open",
                     Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
                     HorizontalAlignment = HorizontalAlignment.Center,
                     FontSize = 10,
@@ -1310,7 +1210,7 @@ public sealed partial class MainPage : Page
                 Content = rowContent
             };
             AutomationProperties.SetName(row, $"Open {provider.DisplayName} workspace");
-            AutomationProperties.SetHelpText(row, $"{provider.CompatibilityStatus}. Keyboard shortcut Ctrl+{providerIndex + 1}.");
+            AutomationProperties.SetHelpText(row, $"{provider.CompatibilityStatus}. Opens a new provider page in this tab.");
             AutomationProperties.SetPositionInSet(row, providerIndex + 1);
             AutomationProperties.SetSizeOfSet(row, WorkspaceCoordinator.Providers.Count);
             row.Click += ProviderChoice_Click;
@@ -1418,6 +1318,7 @@ public sealed partial class MainPage : Page
             Style = (Style)Resources["WorkspaceTabButtonStyle"]
         };
         tab.Click += WorkspaceTab_Click;
+        ConfigureWorkspaceTab(tab, workspace);
 
         var close = new Button
         {
@@ -1444,7 +1345,7 @@ public sealed partial class MainPage : Page
         {
             tabView.Tab.Content = workspace.LifecyclePhase switch
             {
-                WorkspaceLifecyclePhase.Recent => $"{workspace.DisplayName} · recent",
+                WorkspaceLifecyclePhase.Recent => workspace.DisplayName,
                 WorkspaceLifecyclePhase.Disposed => $"{workspace.DisplayName} · reload",
                 _ => workspace.DisplayName
             };
@@ -1463,14 +1364,16 @@ public sealed partial class MainPage : Page
             }
 
             var isActive = ReferenceEquals(workspace, _activeWorkspace);
-            tabView.Tab.Background = isActive ? activeBrush : null;
+            var isVisible = _session.Layout.VisibleWorkspaceIds(_showingTwoPanes).Contains(workspace.Id);
+            tabView.Tab.Background = isVisible ? activeBrush : null;
+            AutomationProperties.SetHelpText(tabView.Tab, $"{workspace.Provider?.DisplayName ?? "Choose a provider"}. {(isActive ? "Focused tab" : isVisible ? "Visible beside focused tab" : "Background tab")}. Right-click for tab actions.");
             tabView.Tab.FontWeight = isActive ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
         }
     }
 
     private void UpdateCloseButtonVisibility()
     {
-        var visibility = _workspaces.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+        var visibility = Visibility.Visible;
         foreach (var tabView in _workspaceTabViews.Values)
         {
             tabView.Close.Visibility = visibility;
@@ -1480,7 +1383,7 @@ public sealed partial class MainPage : Page
     private async Task<PermissionDecision> RequestPermissionAsync(PermissionRequest request)
     {
         if (_pageState != PageLifecycleState.Ready
-            || !string.Equals(_activeWorkspace?.Id, request.WorkspaceId, StringComparison.Ordinal))
+            || !CanPromptForWorkspace(request.WorkspaceId))
         {
             return new PermissionDecision(false, false);
         }
@@ -1493,7 +1396,7 @@ public sealed partial class MainPage : Page
             showRememberChoice: true);
 
         if (_pageState != PageLifecycleState.Ready
-            || !string.Equals(_activeWorkspace?.Id, request.WorkspaceId, StringComparison.Ordinal))
+            || !CanPromptForWorkspace(request.WorkspaceId))
         {
             return new PermissionDecision(false, false);
         }
@@ -1504,7 +1407,7 @@ public sealed partial class MainPage : Page
     private async Task<DownloadDecision> RequestDownloadAsync(DownloadRequest request)
     {
         if (_pageState != PageLifecycleState.Ready
-            || !string.Equals(_activeWorkspace?.Id, request.WorkspaceId, StringComparison.Ordinal))
+            || !CanPromptForWorkspace(request.WorkspaceId))
         {
             return new DownloadDecision(false);
         }
@@ -1527,7 +1430,7 @@ public sealed partial class MainPage : Page
 
         return new DownloadDecision(
             _pageState == PageLifecycleState.Ready
-            && string.Equals(_activeWorkspace?.Id, request.WorkspaceId, StringComparison.Ordinal)
+            && CanPromptForWorkspace(request.WorkspaceId)
             && result.IsPrimary);
     }
 
@@ -1613,7 +1516,7 @@ public sealed partial class MainPage : Page
                 restored.ProviderId,
                 restored.KeepActive,
                 locator);
-            _workspaces.Add(workspace);
+            _session.Add(workspace);
             AddWorkspaceTab(workspace);
         }
 
@@ -1623,18 +1526,16 @@ public sealed partial class MainPage : Page
         }
 
         UpdateCloseButtonVisibility();
-        _activeWorkspace = _workspaces.FirstOrDefault(workspace =>
-            string.Equals(workspace.Id, session.ActiveWorkspaceId, StringComparison.Ordinal))
-            ?? _workspaces.FirstOrDefault();
+        _session.RestoreLayout(session.Layout, session.ActiveWorkspaceId);
         return result;
     }
 
     private void ClearRestoredWorkspaceTabs()
     {
-        _workspaces.Clear();
+        _session.Clear();
+        _workspaceStates.Clear();
         _workspaceTabViews.Clear();
         WorkspaceTabs.Children.Clear();
-        _activeWorkspace = null;
     }
 
     private void EnsureHomeWorkspace()
@@ -1645,7 +1546,7 @@ public sealed partial class MainPage : Page
         }
 
         var workspace = new WorkspaceTab(1);
-        _workspaces.Add(workspace);
+        _session.Add(workspace);
         AddWorkspaceTab(workspace);
     }
 
@@ -1697,10 +1598,7 @@ public sealed partial class MainPage : Page
     {
         try
         {
-            await _sessionStore.SaveSessionAsync(
-                _workspaces.Where(workspace => !_closingWorkspaceIds.Contains(workspace.Id)).ToArray(),
-                _activeWorkspace?.Id,
-                _settings.RestoreExactWorkspace);
+            await _session.SaveAsync(_settings.RestoreExactWorkspace, _closingWorkspaceIds);
             return true;
         }
         catch (Exception exception)
@@ -1735,14 +1633,14 @@ public sealed partial class MainPage : Page
             WelcomeDisclosureMode.UpdatedPrivacyBoundary =>
             [
                 new WelcomeDisclosure(
-                    "Privacy and navigation update",
-                    "AI Drawer now keeps unreviewed sites out of embedded workspaces. External links require your confirmation before opening in your browser. Known subscription, billing, and payment routes are blocked in AI Drawer; use a browser you trust to visit a provider website yourself. AI Drawer remains independent and unofficial, and never reads prompts, responses, page content, credentials, cookies, tokens, or payment data.")
+                    "Conversation tabs and local data",
+                    "Opened pages now stay running when you switch tabs or hide AI Drawer. Memory use grows with the pages you open; Release page frees a page after confirmation. Right-click tabs to rename, reorder, or show two beside each other. Tab names and layout are saved locally; restart restores supported addresses, not unsent drafts. External links still require confirmation, with reviewed reference parameters and plain anchors retained only for links you select. Authentication and known purchases keep their separate restrictions.")
             ],
             _ =>
             [
                 new WelcomeDisclosure(
                     "Welcome to AI Drawer",
-                    "AI Drawer is an independent, unofficial desktop shell for official AI websites. Use Win + Shift + A to show or hide it, or use the tray icon. Provider compatibility labels describe current evidence; your accounts, conversations, and subscriptions remain with each provider."),
+                    "AI Drawer is an independent, unofficial desktop shell for official AI websites. Use Win + Shift + A to show or hide it. Ctrl+T opens another tab with the same provider; Ctrl+Tab and Ctrl+1–9 switch tabs. Right-click a tab to rename, reorder, or show it beside the current tab. Opened pages stay running until you release or close them, so memory use grows with your open pages. Provider compatibility labels describe current evidence."),
                 new WelcomeDisclosure(
                     "Your local session and privacy",
                     "Each provider uses its own local browser profile. Multiple AI Drawer workspaces can share that provider sign-in. AI Drawer never reads or stores prompts, responses, page content, credentials, cookies, tokens, or payment data. Clearing cache is not the same as resetting provider website data; reset signs out every workspace that shares that provider profile."),
@@ -1806,12 +1704,6 @@ public sealed partial class MainPage : Page
         CloseToTrayToggle.IsOn = _settings.CloseToTray;
         AlwaysOnTopToggle.IsOn = _settings.AlwaysOnTop;
         RestoreExactWorkspaceToggle.IsOn = _settings.RestoreExactWorkspace;
-        MemoryModeComboBox.SelectedIndex = _settings.MemoryMode switch
-        {
-            MemoryMode.LowMemory => 0,
-            MemoryMode.FastSwitching => 2,
-            _ => 1
-        };
         SupportDevelopmentButton.IsEnabled = true;
         SupportLinkStatusText.Text =
             "Opens a shared Buy Me a Coffee page in your browser. Contributions do not unlock AI Drawer or activate any application, AI provider, subscription, account, premium feature, or support plan.";
@@ -2023,39 +1915,6 @@ public sealed partial class MainPage : Page
         }
     }
 
-    private async void MemoryModeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (_pageState != PageLifecycleState.Ready
-            || _providerResetInProgress is not null
-            || _updatingSettingsUi
-            || MemoryModeComboBox.SelectedItem is not ComboBoxItem { Tag: string tag })
-        {
-            return;
-        }
-
-        _settings = _settings with
-        {
-            MemoryMode = Enum.TryParse<MemoryMode>(tag, out var mode) ? mode : MemoryMode.Balanced
-        };
-        _workspaceCoordinator?.SetMemoryMode(_settings.MemoryMode);
-        await PersistSettingsAsync();
-    }
-
-    private async void KeepActiveToggle_Toggled(object sender, RoutedEventArgs e)
-    {
-        if (_pageState != PageLifecycleState.Ready
-            || _providerResetInProgress is not null
-            || _updatingSettingsUi
-            || _activeWorkspace is null)
-        {
-            return;
-        }
-
-        _activeWorkspace.SetKeepActive(KeepActiveToggle.IsOn);
-        _workspaceCoordinator?.SetActiveWorkspaceKeepActive(KeepActiveToggle.IsOn);
-        await PersistSessionAsync();
-    }
-
     private void UpdateSupportReminderVisibility()
     {
         if (_activeWorkspace?.IsHome != true
@@ -2259,33 +2118,41 @@ public sealed partial class MainPage : Page
         NavigationActivityBar.Opacity = 0;
     }
 
-    private Task<PromptDecision> ShowPromptAsync(
+    private async Task<PromptDecision> ShowPromptAsync(
         string title,
         string message,
         string primaryButtonText,
         string? secondaryButtonText,
         bool showRememberChoice = false)
     {
-        if (_promptCompletion is not null)
+        await _promptQueue.WaitAsync();
+        try
         {
-            return Task.FromResult(new PromptDecision(false, false));
+            if (_pageState is PageLifecycleState.ShuttingDown or PageLifecycleState.Unloaded || _tabDialogOpen)
+            {
+                return new PromptDecision(false, false);
+            }
+
+            PromptTitle.Text = title;
+            PromptMessage.Text = message;
+            PromptPrimaryButton.Content = primaryButtonText;
+            PromptSecondaryButton.Content = secondaryButtonText;
+            PromptSecondaryButton.Visibility = secondaryButtonText is null ? Visibility.Collapsed : Visibility.Visible;
+            PromptRememberCheckBox.IsChecked = false;
+            PromptRememberCheckBox.Visibility = showRememberChoice ? Visibility.Visible : Visibility.Collapsed;
+            _promptCompletion = new TaskCompletionSource<PromptDecision>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            PromptOverlay.Visibility = Visibility.Visible;
+            AnimateIn(PromptCard);
+            _ = DispatcherQueue.TryEnqueue(() =>
+                (secondaryButtonText is null ? PromptPrimaryButton : PromptSecondaryButton).Focus(FocusState.Programmatic));
+
+            return await _promptCompletion.Task;
         }
-
-        PromptTitle.Text = title;
-        PromptMessage.Text = message;
-        PromptPrimaryButton.Content = primaryButtonText;
-        PromptSecondaryButton.Content = secondaryButtonText;
-        PromptSecondaryButton.Visibility = secondaryButtonText is null ? Visibility.Collapsed : Visibility.Visible;
-        PromptRememberCheckBox.IsChecked = false;
-        PromptRememberCheckBox.Visibility = showRememberChoice ? Visibility.Visible : Visibility.Collapsed;
-        _promptCompletion = new TaskCompletionSource<PromptDecision>(
-            TaskCreationOptions.RunContinuationsAsynchronously);
-        PromptOverlay.Visibility = Visibility.Visible;
-        AnimateIn(PromptCard);
-        _ = DispatcherQueue.TryEnqueue(() =>
-            (secondaryButtonText is null ? PromptPrimaryButton : PromptSecondaryButton).Focus(FocusState.Programmatic));
-
-        return _promptCompletion.Task;
+        finally
+        {
+            _promptQueue.Release();
+        }
     }
 
     private void PromptPrimaryButton_Click(object sender, RoutedEventArgs e) => CompletePrompt(true);

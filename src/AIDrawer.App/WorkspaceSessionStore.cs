@@ -18,6 +18,7 @@ internal sealed class WorkspaceSessionStore
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     private bool _sessionWritesBlocked;
+    private bool _needsVersionOneBackup;
 
     internal async Task<SessionLoadResult> LoadSessionAsync()
     {
@@ -35,7 +36,7 @@ internal sealed class WorkspaceSessionStore
                 return SetSessionLoadResult(SessionLoadStatus.Corrupt, RestoredSession.Empty);
             }
 
-            if (document.SchemaVersion != WorkspaceSession.CurrentSchemaVersion)
+            if (document.SchemaVersion is not 1 && document.SchemaVersion != WorkspaceSession.CurrentSchemaVersion)
             {
                 return SetSessionLoadResult(
                     document.SchemaVersion > WorkspaceSession.CurrentSchemaVersion
@@ -82,7 +83,10 @@ internal sealed class WorkspaceSessionStore
                     locatorResult.Value));
             }
 
-            var session = new RestoredSession(document.ActiveWorkspaceId, restored);
+            _needsVersionOneBackup = document.SchemaVersion == 1;
+            var layout = (document.Layout ?? new WorkspaceLayout(document.ActiveWorkspaceId, null, document.ActiveWorkspaceId))
+                .Normalize(restored.Select(workspace => workspace.Id), document.ActiveWorkspaceId);
+            var session = new RestoredSession(layout.FocusedWorkspaceId, restored, layout);
             if (hadInvalidWorkspace)
             {
                 return SetSessionLoadResult(SessionLoadStatus.Corrupt, session);
@@ -129,7 +133,8 @@ internal sealed class WorkspaceSessionStore
     internal Task SaveSessionAsync(
         IReadOnlyList<WorkspaceTab> workspaces,
         string? activeWorkspaceId,
-        bool restoreExactWorkspace)
+        bool restoreExactWorkspace,
+        WorkspaceLayout? layout = null)
     {
         if (_sessionWritesBlocked)
         {
@@ -153,6 +158,12 @@ internal sealed class WorkspaceSessionStore
         return EnqueueStorageWriteAsync(async () =>
         {
             Directory.CreateDirectory(AppDataRoot);
+            if (_needsVersionOneBackup)
+            {
+                // Preserve the readable v1 record before the first v2 write, including its protected locators.
+                File.Copy(SessionPath, CreateBackupPath(), overwrite: false);
+                _needsVersionOneBackup = false;
+            }
             var snapshots = new List<ConversationWorkspaceSnapshot>(workspaceStates.Length);
             foreach (var workspace in workspaceStates)
             {
@@ -170,7 +181,9 @@ internal sealed class WorkspaceSessionStore
             var document = new WorkspaceSession(
                 WorkspaceSession.CurrentSchemaVersion,
                 persistedActiveWorkspaceId,
-                snapshots);
+                snapshots,
+                (layout ?? new WorkspaceLayout(persistedActiveWorkspaceId, null, persistedActiveWorkspaceId))
+                    .Normalize(snapshots.Select(workspace => workspace.Id), persistedActiveWorkspaceId));
             await WriteAtomicallyAsync(SessionPath, JsonSerializer.Serialize(document, JsonOptions));
         });
     }
@@ -239,6 +252,7 @@ internal sealed class WorkspaceSessionStore
 
                 File.Move(SessionPath, backupPath, overwrite: false);
                 _sessionWritesBlocked = false;
+                _needsVersionOneBackup = false;
                 result = SessionBackupResult.Created;
             }
             catch (IOException)
@@ -372,7 +386,8 @@ internal sealed record SessionWorkspaceState(
 
 internal sealed record RestoredSession(
     string? ActiveWorkspaceId,
-    IReadOnlyList<RestoredWorkspace> Workspaces)
+    IReadOnlyList<RestoredWorkspace> Workspaces,
+    WorkspaceLayout? Layout = null)
 {
     internal static RestoredSession Empty { get; } = new(null, []);
 }

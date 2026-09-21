@@ -4,6 +4,8 @@ Last verified: 2026-08-27
 
 This is the durable current-state summary for the first AI Drawer Public Beta. It complements the chronological development log and the normative release checklist. A source change, passing build, runtime result, package result, device result, and publication result are separate evidence Gates.
 
+The retained-tab and split-view redesign supersedes the earlier automatic-disposal lifecycle. Its local test execution and GUI acceptance are deferred; the historical evidence below must not be reused as acceptance for the redesign. See [ADR 0003](../adr/0003-retained-conversation-tabs-and-split-view.md).
+
 ## Current baseline
 
 - `master` commit: `0191ee5e16bede4f0da9dbefd0b9d3a6713034c9`

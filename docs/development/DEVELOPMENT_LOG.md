@@ -2,6 +2,12 @@
 
 This is the durable development record for implementation decisions, verified behavior, limitations, and open work. It is not a release changelog. Planned behavior must not be presented as shipped or provider-compatible behavior.
 
+## 2026-09-21 — Retained conversation tabs
+
+Replaced automatic background-page eviction with lazy creation and explicit release. Added tab naming, same-provider creation, ordering, search, positional shortcuts, and optional split view. A session controller owns metadata and layout; schema-1 records are backed up before migration to schema 2. External-reference handoff now has a transient policy separate from encrypted conversation restoration.
+
+Updated regression source and the no-account acceptance script. Local test execution and GUI acceptance are deferred by request; prior automatic-disposal acceptance does not establish the new behavior. Builds and source review are separate evidence from provider/device acceptance. See ADR 0003 for the design and migration boundary.
+
 ## 2026-08-27 — current-host final acceptance and security revalidation
 
 ### Completed evidence

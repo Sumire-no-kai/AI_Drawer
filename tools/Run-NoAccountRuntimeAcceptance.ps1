@@ -3,7 +3,8 @@ param(
     [string]$AppPath,
     [string]$OutputPath,
     [ValidateRange(1, 30)]
-    [int]$GracePeriodMinutes = 5,
+    [Alias("GracePeriodMinutes")]
+    [int]$RetentionObservationMinutes = 5,
     [switch]$SkipFiveMinuteWait
 )
 
@@ -251,40 +252,6 @@ function New-Workspace {
     } ([TimeSpan]::FromSeconds(10)) 'new workspace activation'
 }
 
-function Set-ActiveWorkspaceKeepActive {
-    Invoke-ByName 'Workspace actions'
-    $element = $null
-    $deadline = [DateTime]::UtcNow.AddSeconds(10)
-    do {
-        $element = Find-AppElementByName 'Keep active'
-        if ($null -eq $element) {
-            $focused = [System.Windows.Automation.AutomationElement]::FocusedElement
-            if ($null -ne $focused -and $focused.Current.ProcessId -eq $application.Id) {
-                try {
-                    [void]$focused.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)
-                    $element = $focused
-                }
-                catch {
-                }
-            }
-        }
-
-        if ($null -eq $element) {
-            Start-Sleep -Milliseconds 200
-        }
-    } while ($null -eq $element -and [DateTime]::UtcNow -lt $deadline)
-
-    if ($null -eq $element) {
-        throw 'Keep active toggle was not available to UI Automation.'
-    }
-
-    $pattern = [System.Windows.Automation.TogglePattern]$element.GetCurrentPattern(
-        [System.Windows.Automation.TogglePattern]::Pattern)
-    if ($pattern.Current.ToggleState -ne [System.Windows.Automation.ToggleState]::On) {
-        $pattern.Toggle()
-    }
-}
-
 function Get-ProcessSnapshot {
     param([string]$Label)
 
@@ -410,7 +377,7 @@ try {
     New-Item -ItemType Directory -Force -Path $appDataRoot | Out-Null
     [ordered]@{
         SchemaVersion = 1
-        OnboardingVersion = 2
+        OnboardingVersion = 3
         RestoreExactWorkspace = $true
         MemoryMode = 1
         FirstUsedUtc = [DateTimeOffset]::UtcNow.AddDays(-1).ToString('O')
@@ -457,54 +424,40 @@ try {
     Open-ProviderWorkspace 'Gemini' 1
     New-Workspace
     Open-ProviderWorkspace 'ChatGPT' 2
-    if (-not $SkipFiveMinuteWait) {
-        Set-ActiveWorkspaceKeepActive
-        Wait-Condition {
-            $session = Read-Session
-            return $null -ne $session -and @($session.Workspaces | Where-Object {
-                $_.ProviderId -eq 'chatgpt' -and $_.KeepActive -eq $true
-            }).Count -eq 1
-        } ([TimeSpan]::FromSeconds(15)) 'Keep active session persistence'
-        Add-Check 'Keep active is persisted for the selected ChatGPT workspace' $true 'session metadata contains KeepActive=true'
-    }
     New-Workspace
     Open-ProviderWorkspace 'Claude' 3
     New-Workspace
     Open-ProviderWorkspace 'Grok' 4
 
-    Wait-Condition {
-        return @(Find-ButtonNames | Where-Object { $_ -like 'Gemini*reload*' }).Count -eq 1
-    } ([TimeSpan]::FromSeconds(30)) 'hard live-limit disposal'
-    $burstSnapshot = Get-ProcessSnapshot 'four-workspace burst after hard-limit enforcement'
-    Add-Check 'Fourth workspace opens after bounded hard-limit disposal' $true "WebView2 processes: $($burstSnapshot.webViewProcessCount)"
+    $burstSnapshot = Get-ProcessSnapshot 'four retained conversation pages'
+    Add-Check 'Opening the fourth workspace retains the first three pages' `
+        (@(Find-ButtonNames | Where-Object { $_ -like '*reload*' }).Count -eq 0) `
+        "WebView2 processes: $($burstSnapshot.webViewProcessCount)"
 
     if (-not $SkipFiveMinuteWait) {
-        $graceWait = [TimeSpan]::FromMinutes($GracePeriodMinutes).Add([TimeSpan]::FromSeconds(45))
-        try {
-            Wait-Condition {
-                $names = Find-ButtonNames
-                return @($names | Where-Object { $_ -like '*reload*' }).Count -ge 2
-            } $graceWait 'steady live-limit disposal after the five-minute protection period'
-        }
-        catch {
-            $visibleNames = (Find-ButtonNames | Where-Object { $_ -match 'Gemini|ChatGPT|Claude|Grok|reload|recent' }) -join '; '
-            throw "$($_.Exception.Message) Visible workspace actions: $visibleNames"
-        }
-        $steadyTabNames = Find-ButtonNames
-        Add-Check -Name 'Keep active workspace survives steady-state disposal' `
-            -Passed (@($steadyTabNames | Where-Object { $_ -like 'ChatGPT*reload*' }).Count -eq 0) `
-            -Evidence (($steadyTabNames | Where-Object { $_ -match 'Gemini|ChatGPT|Claude|Grok|reload|recent' }) -join '; ')
-        Add-Check -Name 'A second ordinary inactive workspace is released at steady state' `
-            -Passed (@($steadyTabNames | Where-Object { $_ -like 'Claude*reload*' }).Count -eq 1) `
-            -Evidence (($steadyTabNames | Where-Object { $_ -match 'Gemini|ChatGPT|Claude|Grok|reload|recent' }) -join '; ')
-        $steadySnapshot = Get-ProcessSnapshot 'steady state after grace period'
-        Add-Check 'Steady limit preserves Keep active and releases another inactive workspace' $true "WebView2 processes: $($steadySnapshot.webViewProcessCount)"
+        $deadline = [DateTime]::UtcNow.AddMinutes($RetentionObservationMinutes)
+        do {
+            if (@(Find-ButtonNames | Where-Object { $_ -like '*reload*' }).Count -ne 0) {
+                throw 'A page was released without an explicit user action.'
+            }
+            Start-Sleep -Seconds 1
+        } while ([DateTime]::UtcNow -lt $deadline)
+        $steadySnapshot = Get-ProcessSnapshot 'retained pages after observation period'
+        Add-Check 'Background pages remain retained beyond the former grace period' $true `
+            "WebView2 processes: $($steadySnapshot.webViewProcessCount)"
     }
 
+    Invoke-ByName 'Gemini'
+    Invoke-ByName 'Workspace actions'
+    Invoke-ByName 'Release page…'
+    Invoke-ByName 'Release page'
+    Wait-Condition {
+        return @(Find-ButtonNames | Where-Object { $_ -like 'Gemini*reload*' }).Count -eq 1
+    } ([TimeSpan]::FromSeconds(30)) 'explicit page release'
     $geminiReload = Find-ButtonNames | Where-Object { $_ -like 'Gemini*reload*' } | Select-Object -First 1
     Invoke-ByName $geminiReload
-    Wait-SuccessfulOpenCount 5 'disposed Gemini workspace recovery'
-    Add-Check 'Disposed workspace recreates with the same isolated profile' $true 'Gemini returned to a successful navigation'
+    Wait-SuccessfulOpenCount 5 'explicitly released Gemini workspace recovery'
+    Add-Check 'Released workspace recreates with the same isolated profile' $true 'Gemini returned to a successful navigation'
 
     Invoke-ProfileActionForAcceptance 'clear-cache'
     Add-Check 'Clear cache completes through the WebView2 profile API' $true 'isolated Debug profile action succeeded'

@@ -11,6 +11,9 @@
     Unloaded="MainPage_Unloaded">
     <Page.KeyboardAccelerators>
         <KeyboardAccelerator Key="N" Modifiers="Control" Invoked="NewWorkspaceShortcut_Invoked" />
+        <KeyboardAccelerator Key="T" Modifiers="Control" Invoked="NewWorkspaceShortcut_Invoked" />
+        <KeyboardAccelerator Key="Tab" Modifiers="Control" Invoked="CycleWorkspaceShortcut_Invoked" />
+        <KeyboardAccelerator Key="Tab" Modifiers="Control,Shift" Invoked="CycleWorkspaceShortcut_Invoked" />
         <KeyboardAccelerator Key="Number1" Modifiers="Control" Invoked="ProviderShortcut_Invoked" />
         <KeyboardAccelerator Key="Number2" Modifiers="Control" Invoked="ProviderShortcut_Invoked" />
         <KeyboardAccelerator Key="Number3" Modifiers="Control" Invoked="ProviderShortcut_Invoked" />
@@ -154,6 +157,12 @@
                 Visibility="Collapsed" />
 
             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="2">
+                <Button Style="{StaticResource WorkspaceActionButtonStyle}" AutomationProperties.Name="Find an open tab" Click="WorkspaceListButton_Click" ToolTipService.ToolTip="Find an open tab">
+                    <FontIcon Glyph="&#xE721;" />
+                </Button>
+                <Button x:Name="EndSplitButton" Style="{StaticResource WorkspaceActionButtonStyle}" AutomationProperties.Name="Exit split view" Click="EndSplitButton_Click" Visibility="Collapsed" ToolTipService.ToolTip="Exit split view">
+                    <FontIcon Glyph="&#xE740;" />
+                </Button>
                 <Button
                     Style="{StaticResource WorkspaceActionButtonStyle}"
                     AutomationProperties.Name="New workspace"
@@ -182,14 +191,9 @@
                                 Shadow="{StaticResource FloatingSurfaceShadow}"
                                 Translation="0,0,18">
                                 <StackPanel Spacing="2">
-                                    <ToggleSwitch
-                                        x:Name="KeepActiveToggle"
-                                        Margin="12,8"
-                                        AutomationProperties.Name="Keep active"
-                                        Header="Keep active"
-                                        OffContent="Normal disposal priority"
-                                        OnContent="Last to dispose"
-                                        Toggled="KeepActiveToggle_Toggled" />
+                                    <Button Style="{StaticResource ActionMenuButtonStyle}" Content="New tab with this provider" Click="NewSameProviderButton_Click" />
+                                    <Button Style="{StaticResource ActionMenuButtonStyle}" Content="Release page…" Click="ReleaseWorkspaceButton_Click" />
+                                    <Button Style="{StaticResource ActionMenuButtonStyle}" Content="Open in browser" Click="RecoveryOpenBrowserButton_Click" />
                                     <Button Style="{StaticResource ActionMenuButtonStyle}" Click="ReloadButton_Click">
                                         <StackPanel Orientation="Horizontal" Spacing="10">
                                             <FontIcon Glyph="&#xE72C;" FontSize="16" />
@@ -278,8 +282,26 @@
             </Grid>
         </Border>
 
-        <Grid Grid.Row="2">
-            <Grid x:Name="HomePanel">
+        <Grid x:Name="WorkspaceContent" Grid.Row="2" SizeChanged="WorkspaceContent_SizeChanged">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="0" />
+                <ColumnDefinition Width="0" />
+            </Grid.ColumnDefinitions>
+            <Grid x:Name="PaneHeaderBar" Grid.ColumnSpan="3" Visibility="Collapsed">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="0" />
+                    <ColumnDefinition Width="0" />
+                </Grid.ColumnDefinitions>
+                <Button x:Name="PrimaryPaneButton" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="WorkspaceTab_Click" />
+                <Button x:Name="SecondaryPaneButton" Grid.Column="2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" Click="WorkspaceTab_Click" />
+            </Grid>
+            <Grid x:Name="HomePanel" Grid.Row="1" Grid.ColumnSpan="3">
                 <Ellipse
                     Width="760"
                     Height="430"
@@ -340,7 +362,7 @@
                                     <TextBlock Text="Open a workspace" FontSize="13" FontWeight="SemiBold" />
                                     <TextBlock
                                         HorizontalAlignment="Right"
-                                        Text="Ctrl+1–9"
+                                        Text="Ctrl+1–9 switches tabs"
                                         FontSize="11"
                                         Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                                 </Grid>
@@ -429,18 +451,27 @@
                 </ScrollViewer>
             </Grid>
 
-            <Grid x:Name="WebViewHost" Visibility="Collapsed" />
+            <Grid x:Name="WebViewHost" Grid.Row="1" Grid.ColumnSpan="3" Visibility="Collapsed">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="0" />
+                    <ColumnDefinition Width="0" />
+                </Grid.ColumnDefinitions>
+            </Grid>
+            <Thumb x:Name="PaneDivider" Grid.Row="1" Grid.Column="1" Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                IsTabStop="True" AutomationProperties.Name="Resize split view; use left and right arrows"
+                DragDelta="PaneDivider_DragDelta" DragCompleted="PaneDivider_DragCompleted" KeyDown="PaneDivider_KeyDown" Visibility="Collapsed" />
 
             <Grid
                 x:Name="RecoveryPanel"
+                Grid.Row="1"
                 Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
                 TabFocusNavigation="Cycle"
                 Visibility="Collapsed">
                 <StackPanel
-                    Width="420"
-                    MaxWidth="{Binding ActualWidth, ElementName=RootLayout}"
+                    MaxWidth="420"
                     Margin="24"
-                    HorizontalAlignment="Center"
+                    HorizontalAlignment="Stretch"
                     VerticalAlignment="Center"
                     Spacing="12">
                     <TextBlock x:Name="RecoveryTitle" Text="Workspace needs attention" FontSize="20" FontWeight="SemiBold" />
@@ -472,6 +503,7 @@
 
             <Grid
                 x:Name="WorkspaceLoadingPanel"
+                Grid.Row="1"
                 Canvas.ZIndex="30"
                 Background="{ThemeResource SolidBackgroundFillColorBaseBrush}"
                 Visibility="Collapsed">
@@ -507,6 +539,8 @@
                     <TextBlock
                         HorizontalAlignment="Center"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        TextWrapping="Wrap"
+                        Margin="16,0"
                         Text="Your navigation stays available while the provider gets ready." />
                 </StackPanel>
             </Grid>
@@ -835,17 +869,12 @@
                             <TextBlock Text="Workspaces &amp; local website data" FontSize="16" FontWeight="SemiBold" />
                             <ToggleSwitch
                                 x:Name="RestoreExactWorkspaceToggle"
-                                Header="Restore exact workspace after restart"
-                                OnContent="Encrypted restricted locator enabled"
-                                OffContent="Open provider home page"
+                                Header="Reopen available conversation addresses after restart"
+                                OnContent="Restore supported conversation addresses"
+                                OffContent="Keep tabs; open provider home pages"
                                 Toggled="RestoreExactWorkspaceToggle_Toggled" />
                             <TextBlock Text="Only a reviewed provider origin and opaque conversation path may be saved. No page content, prompts, responses, cookies, credentials, query parameters, or fragments are stored." TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                            <ComboBox x:Name="MemoryModeComboBox" Header="Memory mode (available after resource validation)" HorizontalAlignment="Stretch" IsEnabled="False" SelectionChanged="MemoryModeComboBox_SelectionChanged">
-                                <ComboBoxItem Content="Low memory" Tag="LowMemory" />
-                                <ComboBoxItem Content="Balanced" Tag="Balanced" />
-                                <ComboBoxItem Content="Fast switching" Tag="FastSwitching" />
-                            </ComboBox>
-                            <TextBlock Text="Balanced is the current provisional policy. Low Memory and Fast Switching remain disabled until their Windows 10/11 pressure budgets are measured." TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                            <TextBlock Text="Opened pages stay running when you switch tabs or hide AI Drawer. Memory use grows with the pages you open. Use Release page to free a page explicitly; unsent drafts and ongoing work may be lost." TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             <TextBlock x:Name="ProviderDataScopeText" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <Button x:Name="ClearProviderCacheButton" Style="{StaticResource AppSecondaryButtonStyle}" Content="Clear provider cache" Click="ClearProviderCacheButton_Click" />
