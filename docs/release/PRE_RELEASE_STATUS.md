@@ -8,7 +8,8 @@ The retained-tab and split-view redesign supersedes the earlier automatic-dispos
 
 ## Current baseline
 
-- Acceptance implementation baseline: `a7d9b5e`, based on `master` `f21c444`; retained-tab delivery was merged through PR #21 before this acceptance-fix work.
+- Current merged baseline: `master` `4a5a3018da906077687dca8d1aba71ed3c36cbb9`, PR #22 reviewed head `d6d6605`; the accepted production implementation is `a7d9b5e`.
+- Post-merge CI: run `35597794791`; x64, x86, ARM64, formatting, and compatibility/privacy-safe policy jobs passed.
 - Public artifact: none; inspected candidates remain unsigned internal evidence and must not be distributed to end users
 - Current-host retained-tab no-account acceptance is complete and recorded in `docs/testing/HOST_ACCEPTANCE_2026-09-21.md`. The earlier M4 baseline remains recorded in `docs/testing/HOST_ACCEPTANCE_2026-08-27.md`. Planning percentages are intentionally omitted because they do not substitute for release Gates.
 
